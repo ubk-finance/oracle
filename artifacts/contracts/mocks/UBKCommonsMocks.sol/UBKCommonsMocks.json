@@ -1,0 +1,10 @@
+{
+  "_format": "hh-sol-artifact-1",
+  "contractName": "UBKCommonsMocks",
+  "sourceName": "contracts/mocks/UBKCommonsMocks.sol",
+  "abi": [],
+  "bytecode": "0x6080604052348015600f57600080fd5b50603f80601d6000396000f3fe6080604052600080fdfea2646970667358221220fae5aeb0ab72ff2dfaaca43cd3d458d19bccdb48b09a5d822f3421f18aabe9f464736f6c63430008150033",
+  "deployedBytecode": "0x6080604052600080fdfea2646970667358221220fae5aeb0ab72ff2dfaaca43cd3d458d19bccdb48b09a5d822f3421f18aabe9f464736f6c63430008150033",
+  "linkReferences": {},
+  "deployedLinkReferences": {}
+}

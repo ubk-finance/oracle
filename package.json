@@ -22,7 +22,8 @@
     "artifacts",
     "interfaces",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "package.json"
   ],
   "devDependencies": {
     "@graphprotocol/hardhat-graph": "^0.1.0-alpha.2",
@@ -37,6 +38,6 @@
   },
   "dependencies": {
     "@chainlink/contracts": "^0.6.1",
-    "@ubk-labs/ubk-commons": "^0.1.1"
+    "@ubk-labs/ubk-commons": "^0.1.5"
   }
 }
