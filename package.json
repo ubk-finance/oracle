@@ -19,7 +19,6 @@
   "license": "MIT",
   "files": [
     "contracts",
-    "artifacts",
     "interfaces",
     "README.md",
     "LICENSE",
