@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@ubk-labs/ubk-commons/commons/UBKErrors.sol";
+import "@ubk-labs/ubk-commons/contracts/errors/UBKErrors.sol";
 
 // ───────────── Errors ─────────────
 error InvalidManualPrice(address token, uint256 price);

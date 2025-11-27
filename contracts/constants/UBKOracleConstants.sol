@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@ubk-labs/ubk-commons/commons/UBKConstants.sol";
+import "@ubk-labs/ubk-commons/contracts/constants/UBKConstants.sol";
 
 
 library UBKOracleConstants {

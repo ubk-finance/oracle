@@ -1,6 +1,6 @@
 {
   "name": "@ubk-labs/ubk-oracle",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Oracle supporting ERC-20 and ERC-4626 assets for use in decentralized financial applications.",
   "scripts": {
     "build": "npx hardhat compile",
@@ -19,10 +19,10 @@
   "license": "MIT",
   "files": [
     "contracts",
-    "artifacts",
     "interfaces",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "package.json"
   ],
   "devDependencies": {
     "@graphprotocol/hardhat-graph": "^0.1.0-alpha.2",
@@ -37,6 +37,6 @@
   },
   "dependencies": {
     "@chainlink/contracts": "^0.6.1",
-    "@ubk-labs/ubk-commons": "^0.1.1"
+    "@ubk-labs/ubk-commons": "^0.1.5"
   }
 }

@@ -2,32 +2,31 @@ const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { anyValue } = require("@nomicfoundation/hardhat-chai-matchers/withArgs");
 
+let deployer, user, oracle, usdc, dai, sdai, feedUSDC, feedWBTC, feedDAI, wbtc, MockERC20, Mock4626, MockAggregator;
+
+async function setup() {
+  const Oracle = await ethers.getContractFactory("UBKOracle");
+  oracle = await Oracle.deploy(deployer.address);
+
+  // Mock ERC20 tokens
+  usdc = await MockERC20.deploy("USD Coin", "USDC", 6, ethers.parseUnits("1000000", 6));
+  dai = await MockERC20.deploy("DAI Stablecoin", "DAI", 18, ethers.parseUnits("1000000", 18));
+  wbtc = await MockERC20.deploy("WBTC", "WBTC", 8, ethers.parseUnits("1000000", 8));
+
+  feedUSDC = await MockAggregator.deploy(1e8, 8); // $1.00
+  feedDAI = await MockAggregator.deploy(1e8, 8); // $1.00
+  feedWBTC = await MockAggregator.deploy(25000e8, 8); // $25,000
+
+  // Mock ERC4626 oracle (sDAI)
+  const mockRate = ethers.parseUnits("1.02", 18); // simulate 2% yield
+  sdai = await Mock4626.deploy("Savings DAI", "sDAI", 18, ethers.parseUnits("1000000", 18), dai.target);
+  await sdai.setExchangeRate(mockRate);
+
+  // Mock Chainlink feed (8 decimals)
+  feed = await MockAggregator.deploy(1e8, 8); // $1.00
+}
 
 describe("UBKOracle", function () {
-  let deployer, user, oracle, usdc, dai, sdai, feedUSDC, feedWBTC, feedDAI, wbtc, MockERC20, Mock4626, MockAggregator;
-
-  async function setup() {
-    const Oracle = await ethers.getContractFactory("UBKOracle");
-    oracle = await Oracle.deploy(deployer.address);
-
-    // Mock ERC20 tokens
-    usdc = await MockERC20.deploy("USD Coin", "USDC", 6, ethers.parseUnits("1000000", 6));
-    dai = await MockERC20.deploy("DAI Stablecoin", "DAI", 18, ethers.parseUnits("1000000", 18));
-    wbtc = await MockERC20.deploy("WBTC", "WBTC", 8, ethers.parseUnits("1000000", 8));
-
-    feedUSDC = await MockAggregator.deploy(1e8, 8); // $1.00
-    feedDAI = await MockAggregator.deploy(1e8, 8); // $1.00
-    feedWBTC = await MockAggregator.deploy(25000e8, 8); // $25,000
-
-    // Mock ERC4626 oracle (sDAI)
-    const mockRate = ethers.parseUnits("1.02", 18); // simulate 2% yield
-    sdai = await Mock4626.deploy("Savings DAI", "sDAI", 18, ethers.parseUnits("1000000", 18), dai.target);
-    await sdai.setExchangeRate(mockRate);
-
-    // Mock Chainlink feed (8 decimals)
-    feed = await MockAggregator.deploy(1e8, 8); // $1.00
-  }
-
   before(async () => {
     [deployer, user] = await ethers.getSigners();
     MockERC20 = await ethers.getContractFactory("MockERC20");
