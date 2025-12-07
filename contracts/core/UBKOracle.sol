@@ -14,7 +14,7 @@ import "../constants/UBKOracleConstants.sol";
 
 /**
  * @title Oracle
- * @notice This contract is an implementation of the IOracle interface.
+ * @notice This contract is an implementation of the IUBKOracle interface.
  *
  * @dev
  *  The oracle computes normalized 1e18 prices for all supported assets,
@@ -190,10 +190,12 @@ contract UBKOracle is IUBKOracle, Ownable {
         LastValidPrice memory lv = lastValidPrice[token];
         if (lv.price > 0 && block.timestamp - lv.timestamp <= stalePeriod) {
             uint256 lowerBound = (lv.price *
-                (UBKOracleConstants.WAD - UBKOracleConstants.ORACLE_MANUAL_PRICE_MAX_DELTA_WAD)) /
+                (UBKOracleConstants.WAD -
+                    UBKOracleConstants.ORACLE_MANUAL_PRICE_MAX_DELTA_WAD)) /
                 UBKOracleConstants.WAD;
             uint256 upperBound = (lv.price *
-                (UBKOracleConstants.WAD + UBKOracleConstants.ORACLE_MANUAL_PRICE_MAX_DELTA_WAD)) /
+                (UBKOracleConstants.WAD +
+                    UBKOracleConstants.ORACLE_MANUAL_PRICE_MAX_DELTA_WAD)) /
                 UBKOracleConstants.WAD;
             if (price < lowerBound || price > upperBound)
                 revert InvalidManualPrice(token, price);
@@ -245,7 +247,6 @@ contract UBKOracle is IUBKOracle, Ownable {
         } catch {
             revert InvalidFeedContract(feed);
         }
-
         chainlinkFeeds[token] = feed;
         isManual[token] = false;
         _addSupportedToken(token);
@@ -315,10 +316,18 @@ contract UBKOracle is IUBKOracle, Ownable {
      * @param token Token address.
      * @return isFresh True if price updated ≤ stalePeriod ago.
      */
-    function isPriceFresh(address token) external view returns (bool isFresh) {
+    function _isPriceFresh(address token) internal view returns (bool isFresh) {
         LastValidPrice memory lv = lastValidPrice[token];
         return (lv.timestamp != 0 &&
             block.timestamp - lv.timestamp <= stalePeriod);
+    }
+
+    /** Public wrapper for _isPriceFresh
+     * @notice Checks if cached price is within freshness threshold.
+     * @return isFresh True if price updated ≤ stalePeriod ago.
+     */
+    function isPriceFresh(address token) external view returns (bool isFresh) {
+        return _isPriceFresh(token);
     }
 
     /**
@@ -352,7 +361,8 @@ contract UBKOracle is IUBKOracle, Ownable {
     ) external view returns (uint256 usdValue) {
         if (amount == 0) return 0;
         uint8 decimals = IERC20Metadata(token).decimals();
-        uint256 normalized = (amount * UBKOracleConstants.WAD) / (10 ** decimals);
+        uint256 normalized = (amount * UBKOracleConstants.WAD) /
+            (10 ** decimals);
         uint256 price = _getPrice(token); // 18 decimals
         usdValue = (normalized * price) / UBKOracleConstants.WAD;
     }
@@ -385,10 +395,11 @@ contract UBKOracle is IUBKOracle, Ownable {
      * @return price Cached price in 1e18 precision.
      */
     function _getPrice(address token) internal view returns (uint256) {
-        if (token == address(0)) revert ZeroAddress("UBKOracle::getPrice", "token");
+        if (token == address(0))
+            revert ZeroAddress("UBKOracle::getPrice", "token");
         LastValidPrice memory lv = lastValidPrice[token];
         if (lv.price == 0) revert NoFallbackPrice(token);
-        if (!this.isPriceFresh(token))
+        if (!_isPriceFresh(token))
             revert StalePrice(token, lv.timestamp, block.timestamp);
         return lv.price;
     }
