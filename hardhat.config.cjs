@@ -20,13 +20,39 @@ module.exports = {
         localhost: {
             url: "http://127.0.0.1:8545"
         },
-        sepolia: {
-            url: RPC_URL || "",
+        arbitrum: {
+            url: process.env.ARBITRUM_RPC_URL || "https://arb1.arbitrum.io/rpc",
+            accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
+        },
+        arbitrumSepolia: {
+            url: process.env.ARBSEPOLIA_RPC_URL || "https://sepolia-rollup.arbitrum.io/rpc",
             accounts: PRIVATE_KEY ? [PRIVATE_KEY] : [],
         }
+
     },
     etherscan: {
-        apiKey: process.env.ETHERSCAN_API_KEY || ""
+        apiKey: {
+            arbitrumOne: process.env.ARBISCAN_API_KEY || "",
+            arbitrumSepolia: process.env.ARBISCAN_API_KEY || "",
+        },
+        customChains: [
+            {
+                network: "arbitrumOne",
+                chainId: 42161,
+                urls: {
+                    apiURL: "https://api.arbiscan.io/api",
+                    browserURL: "https://arbiscan.io"
+                }
+            },
+            {
+                network: "arbitrumSepolia",
+                chainId: 421614,
+                urls: {
+                    apiURL: "https://api-sepolia.arbiscan.io/api",
+                    browserURL: "https://sepolia.arbiscan.io"
+                }
+            }
+        ]
     },
     paths: {
         sources: "./contracts",
@@ -38,4 +64,3 @@ module.exports = {
         timeout: 30000
     }
 };
-// Hardhat config placeholder
