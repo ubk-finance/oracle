@@ -1,8 +1,13 @@
+export const CHAINLINK_FEEDS = {
+    ARB_ONE: ARBITRUM_ONE_FEEDS,
+    ETH_MAIN: ETHEREUM_MAINNET_FEEDS
+};
+
 /**
  * Chainlink price feeds for supported assets on Arbitrum One.
  * All feeds normalized to USD pairs.
  */
-export const ARBITRUM_ONE_FEEDS = {
+const ARBITRUM_ONE_FEEDS = {
     USDC: "0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3",
     frxUSD: "0xF6a5c5480A9aC736ea567454e2E570889E0DB4Bc",
     USDe: "0x88AC7Bca36567525A866138F03a6F6844868E0Bc",
@@ -10,7 +15,7 @@ export const ARBITRUM_ONE_FEEDS = {
     ETH: "0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612",
 };
 
-export const ETHEREUM_MAINNET_FEEDS = {
+const ETHEREUM_MAINNET_FEEDS = {
     USDC: "0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6",
     frxUSD: "0x9B4a96210bc8D9D55b1908B465D8B0de68B7fF83",
     USDe: "0xa569d910839Ae8865Da8F8e70FfFb0cBA869F961",
@@ -20,8 +25,5 @@ export const ETHEREUM_MAINNET_FEEDS = {
 };
 
 
-export const CHAINLINK_FEEDS = {
-    ARB_ONE: ARBITRUM_ONE_FEEDS,
-    ETH_MAIN: ETHEREUM_MAINNET_FEEDS
-};
+
 
