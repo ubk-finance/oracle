@@ -443,7 +443,7 @@ contract UBKOracle is IUBKOracle, Ownable {
         if (rate > maxRate || rate < minRate)
             revert SuspiciousVaultRate(vault, rate);
 
-        uint256 underlyingPrice = resolvePrice(underlying);
+        uint256 underlyingPrice = _resolvePrice(underlying);
         return (underlyingPrice * rate) / UBKOracleConstants.WAD;
     }
 
@@ -510,7 +510,7 @@ contract UBKOracle is IUBKOracle, Ownable {
      * @return price Resolved fair price in 1e18 precision.
      * @dev May trigger state updates if underlying vaults are resolved.
      */
-    function resolvePrice(address token) public returns (uint256 price) {
+    function _resolvePrice(address token) internal returns (uint256 price) {
         if (isManual[token]) return manualPrices[token];
 
         address underlying = erc4626Underlying[token];
@@ -545,7 +545,7 @@ contract UBKOracle is IUBKOracle, Ownable {
     function _fetchAndUpdatePrice(
         address token
     ) internal returns (uint256 price) {
-        price = resolvePrice(token);
+        price = _resolvePrice(token);
         if (
             price < UBKOracleConstants.ORACLE_MIN_ABSOLUTE_PRICE_WAD ||
             price > UBKOracleConstants.ORACLE_MAX_ABSOLUTE_PRICE_WAD
