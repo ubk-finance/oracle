@@ -117,6 +117,34 @@ describe("UBKOracle", function () {
         await expect(oracle.connect(user).setChainlinkFeed(usdc.target, feed.target))
           .to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount");
       });
+
+      it("reverts if feed decimals > 18", async () => {
+        const BadFeed = await ethers.getContractFactory("MockAggregatorV3");
+        const badFeed = await BadFeed.deploy(1e8, 19); // 19 decimals → invalid
+
+        await expect(
+          oracle.setChainlinkFeed(usdc.target, badFeed.target)
+        ).to.be.revertedWithCustomError(oracle, "InvalidFeedDecimals");
+      });
+
+      it("treats a negative Chainlink answer as invalid and falls back", async () => {
+        // 1. Seed oracle with a valid cached price
+        await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
+        await oracle.fetchAndUpdatePrice(usdc.target);
+        const cached = await oracle.getPrice(usdc.target);
+
+        // 2. Make Chainlink return a negative answer
+        await feedUSDC.updateAnswer(-100_000_000); // e.g. -1.0 * 1e8
+
+        // 3. fetchAndUpdatePrice() should fall back to cached value
+        await expect(oracle.fetchAndUpdatePrice(usdc.target))
+          .to.emit(oracle, "OracleFallbackUsed")
+          .withArgs(usdc.target, cached, anyValue, "Chainlink failure");
+
+        // 4. Ensure cached value remains in place
+        const finalPrice = await oracle.getPrice(usdc.target);
+        expect(finalPrice).to.equal(cached);
+      });
     });
 
     // --- setERC4626Vault ---
@@ -185,6 +213,32 @@ describe("UBKOracle", function () {
         await expect(oracle.connect(user).setERC4626Vault(sdai.target, dai.target))
           .to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount");
       });
+
+      it("reverts with SuspiciousVaultRate when rate < default min bound", async () => {
+        await oracle.setERC4626Vault(sdai.target, dai.target);
+        await oracle.setChainlinkFeed(dai.target, feedDAI.target);
+
+        // force convertToAssets to return 0 → invalid
+        await sdai.setExchangeRate(0);
+
+        await expect(
+          oracle.fetchAndUpdatePrice(sdai.target)
+        ).to.be.revertedWithCustomError(oracle, "InvalidVaultExchangeRate");
+      });
+
+      it("reverts with SuspiciousVaultRate when rate > max bound", async () => {
+        await oracle.setERC4626Vault(sdai.target, dai.target);
+        await oracle.setChainlinkFeed(dai.target, feedDAI.target);
+
+        // artificially huge exchange rate
+        await sdai.setExchangeRate(ethers.parseUnits("1000", 18)); // insane APY
+
+        await expect(
+          oracle.fetchAndUpdatePrice(sdai.target)
+        ).to.be.revertedWithCustomError(oracle, "SuspiciousVaultRate");
+      });
+
+
     });
 
     describe("setManualPrice()", function () {
@@ -639,6 +693,44 @@ describe("UBKOracle", function () {
         await oracle.setOracleMode(1); // PAUSED enum value
         await expect(oracle.fetchAndUpdatePrice(usdc.target))
           .to.be.revertedWithCustomError(oracle, "OraclePaused");
+      });
+
+      it("reverts with StaleFallback when cached fallback is older than fallbackStalePeriod", async () => {
+        await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
+        await oracle.fetchAndUpdatePrice(usdc.target); // establish valid price
+        const stale = 3600;
+
+        await oracle.setStalePeriod(usdc.target, stale); // fallback = 2 * stale = 7200
+
+        // make cached price too old → beyond fallbackStalePeriod
+        await ethers.provider.send("evm_increaseTime", [7200 + 1]);
+        await ethers.provider.send("evm_mine");
+
+        // feed now stale + invalid
+        await feedUSDC.setUpdatedAt((await time.latest()) - (stale + 1));
+
+        await expect(
+          oracle.fetchAndUpdatePrice(usdc.target)
+        ).to.be.revertedWithCustomError(oracle, "StaleFallback");
+      });
+    });
+
+    describe("getPrice()", function () {
+      beforeEach(async () => {
+        await setup();
+        await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
+        await oracle.fetchAndUpdatePrice(usdc.target);
+      });
+
+      it("reverts with StalePrice when lastValidPrice is older than stalePeriod", async () => {
+        const stale = 3600;
+        await oracle.setStalePeriod(usdc.target, stale);
+
+        await ethers.provider.send("evm_increaseTime", [stale + 1]);
+        await ethers.provider.send("evm_mine");
+
+        await expect(oracle.getPrice(usdc.target))
+          .to.be.revertedWithCustomError(oracle, "StalePrice");
       });
     });
 
