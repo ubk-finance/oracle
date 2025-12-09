@@ -63,11 +63,10 @@ contract UBKOracle is IUBKOracle, Ownable {
     mapping(address => VaultRateBounds) public vaultRateBounds;
 
     /// @notice Maximum staleness period for Chainlink feeds (seconds).
-    uint256 public stalePeriod = UBKOracleConstants.ORACLE_DEFAULT_STALE_PERIOD;
+    mapping(address => uint256) stalePeriod;
 
     /// @notice Staleness tolerance for fallback prices (seconds).
-    uint256 public fallbackStalePeriod =
-        UBKOracleConstants.ORACLE_DEFAULT_STALE_PERIOD * 2;
+    mapping(address => uint256) fallbackStalePeriod;
 
     OracleMode public mode = OracleMode.NORMAL;
 
@@ -128,13 +127,14 @@ contract UBKOracle is IUBKOracle, Ownable {
      * @param period The new staleness threshold.
      * @dev Must lie within [UBKOracleConstants.ORACLE_MIN_STALE_PERIOD, UBKOracleConstants.ORACLE_MAX_STALE_PERIOD].
      */
-    function setStalePeriod(uint256 period) external onlyOwner {
+    function setStalePeriod(address token, uint256 period) external onlyOwner {
         if (
             period < UBKOracleConstants.ORACLE_MIN_STALE_PERIOD ||
             period > UBKOracleConstants.ORACLE_MAX_STALE_PERIOD
         ) revert InvalidStalePeriod(period);
-        stalePeriod = period;
-        emit StalePeriodUpdated(period);
+        stalePeriod[token] = period;
+        fallbackStalePeriod[token] = 2 * period; //Minimum fallback should be 2x stalePeriod[token].
+        emit StalePeriodUpdated(token, period);
     }
 
     /**
@@ -142,10 +142,10 @@ contract UBKOracle is IUBKOracle, Ownable {
      * @param period Maximum allowed seconds for fallback validity.
      * @dev Must be ≥ stalePeriod to remain meaningful.
      */
-    function setFallbackStalePeriod(uint256 period) external onlyOwner {
-        if (period < stalePeriod) revert InvalidStalePeriod(period);
-        fallbackStalePeriod = period;
-        emit FallbackStalePeriodUpdated(period);
+    function setFallbackStalePeriod(address token, uint256 period) external onlyOwner {
+        if (period < stalePeriod[token]) revert InvalidStalePeriod(period);
+        fallbackStalePeriod[token] = period;
+        emit FallbackStalePeriodUpdated(token, period);
     }
 
     /**
@@ -188,7 +188,7 @@ contract UBKOracle is IUBKOracle, Ownable {
         ) revert InvalidManualPrice(token, price);
 
         LastValidPrice memory lv = lastValidPrice[token];
-        if (lv.price > 0 && block.timestamp - lv.timestamp <= stalePeriod) {
+        if (lv.price > 0 && block.timestamp - lv.timestamp <= stalePeriod[token]) {
             uint256 lowerBound = (lv.price *
                 (UBKOracleConstants.WAD - UBKOracleConstants.ORACLE_MANUAL_PRICE_MAX_DELTA_WAD)) /
                 UBKOracleConstants.WAD;
@@ -318,7 +318,7 @@ contract UBKOracle is IUBKOracle, Ownable {
     function isPriceFresh(address token) external view returns (bool isFresh) {
         LastValidPrice memory lv = lastValidPrice[token];
         return (lv.timestamp != 0 &&
-            block.timestamp - lv.timestamp <= stalePeriod);
+            block.timestamp - lv.timestamp <= stalePeriod[token]);
     }
 
     /**
@@ -434,7 +434,7 @@ contract UBKOracle is IUBKOracle, Ownable {
 
     /**
      * @notice Fetches and validates the latest Chainlink feed price.
-     * @param feed The address of the Chainlink AggregatorV3 feed.
+     * @param token The address of the token whose feed needs to be read.
      * @return price The normalized price (1e18 precision).
      * @return valid Boolean indicating whether the feed result is valid.
      *
@@ -448,8 +448,9 @@ contract UBKOracle is IUBKOracle, Ownable {
      *  If any condition fails or the feed call reverts, returns `(0, false)`.
      */
     function _getChainlinkPrice(
-        address feed
+        address token
     ) internal view returns (uint256 price, bool valid) {
+        address feed = chainlinkFeeds[token];
         try AggregatorV3Interface(feed).latestRoundData() returns (
             uint80,
             int256 answer,
@@ -460,7 +461,7 @@ contract UBKOracle is IUBKOracle, Ownable {
             if (
                 answer <= 0 ||
                 updatedAt == 0 ||
-                block.timestamp - updatedAt > stalePeriod
+                block.timestamp - updatedAt > stalePeriod[token]
             ) return (0, false);
 
             uint8 feedDecimals = AggregatorV3Interface(feed).decimals();
@@ -503,12 +504,12 @@ contract UBKOracle is IUBKOracle, Ownable {
         address feed = chainlinkFeeds[token];
         if (feed == address(0)) revert NoPriceFeed(token);
 
-        (uint256 clPrice, bool valid) = _getChainlinkPrice(feed);
+        (uint256 clPrice, bool valid) = _getChainlinkPrice(token);
         if (valid) return clPrice;
 
         LastValidPrice memory lv = lastValidPrice[token];
         if (lv.price == 0) revert NoFallbackPrice(token);
-        if (block.timestamp - lv.timestamp > fallbackStalePeriod)
+        if (block.timestamp - lv.timestamp > fallbackStalePeriod[token])
             revert StaleFallback(token);
 
         emit OracleFallbackUsed(

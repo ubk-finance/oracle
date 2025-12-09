@@ -26,9 +26,9 @@ interface IUBKOracle {
     event TokenSupportAdded(address indexed token);
     event ManualPriceSet(address indexed token, uint256 price);
     event ManualModeEnabled(address indexed token, bool enabled);
-    event StalePeriodUpdated(uint256 newPeriod);
+    event StalePeriodUpdated(address indexed token, uint256 newPeriod);
+    event FallbackStalePeriodUpdated(address indexed token, uint256 newPeriod);
     event OracleModeChanged(OracleMode oldMode, OracleMode newMode);
-    event FallbackStalePeriodUpdated(uint256 newPeriod);
     event VaultRateBoundsSet(
         address indexed vault,
         uint256 minRate,
