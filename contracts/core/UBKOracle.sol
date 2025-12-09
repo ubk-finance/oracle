@@ -124,7 +124,7 @@ contract UBKOracle is IUBKOracle, Ownable {
 
     /**
      * @notice Sets the maximum time (in seconds) a Chainlink feed value is valid.
-     * @param period The new staleness threshold.
+     * @param period The new fallback staleness threshold. Must be 1.5x of stalePeriod of the same token.
      * @dev Must lie within [UBKOracleConstants.ORACLE_MIN_STALE_PERIOD, UBKOracleConstants.ORACLE_MAX_STALE_PERIOD].
      */
     function setStalePeriod(address token, uint256 period) external onlyOwner {
@@ -133,7 +133,9 @@ contract UBKOracle is IUBKOracle, Ownable {
             period > UBKOracleConstants.ORACLE_MAX_STALE_PERIOD
         ) revert InvalidStalePeriod(period);
         stalePeriod[token] = period;
-        fallbackStalePeriod[token] = 2 * period; //Minimum fallback should be 2x stalePeriod[token].
+        fallbackStalePeriod[token] =
+            UBKOracleConstants.ORACLE_DEFAULT_STALE_FALLBACK_MULTIPLIER *
+            period; //Minimum fallback period should be 2x stalePeriod[token].
         emit StalePeriodUpdated(token, period);
     }
 
@@ -142,8 +144,15 @@ contract UBKOracle is IUBKOracle, Ownable {
      * @param period Maximum allowed seconds for fallback validity.
      * @dev Must be ≥ stalePeriod to remain meaningful.
      */
-    function setFallbackStalePeriod(address token, uint256 period) external onlyOwner {
-        if (period < stalePeriod[token]) revert InvalidStalePeriod(period);
+    function setFallbackStalePeriod(
+        address token,
+        uint256 period
+    ) external onlyOwner {
+        uint256 stalePeriodToken = stalePeriod[token]; // Default stale period of token.
+        uint256 maxFallbackPeriod = stalePeriodToken *
+            UBKOracleConstants.ORACLE_MAX_STALE_FALLBACK_MULTIPLIER; // The absolute maximum fallback stale period allowed. (3x)
+        if (period < stalePeriodToken || period > maxFallbackPeriod)
+            revert InvalidStalePeriod(period);
         fallbackStalePeriod[token] = period;
         emit FallbackStalePeriodUpdated(token, period);
     }
@@ -188,12 +197,16 @@ contract UBKOracle is IUBKOracle, Ownable {
         ) revert InvalidManualPrice(token, price);
 
         LastValidPrice memory lv = lastValidPrice[token];
-        if (lv.price > 0 && block.timestamp - lv.timestamp <= stalePeriod[token]) {
+        if (
+            lv.price > 0 && block.timestamp - lv.timestamp <= stalePeriod[token]
+        ) {
             uint256 lowerBound = (lv.price *
-                (UBKOracleConstants.WAD - UBKOracleConstants.ORACLE_MANUAL_PRICE_MAX_DELTA_WAD)) /
+                (UBKOracleConstants.WAD -
+                    UBKOracleConstants.ORACLE_MANUAL_PRICE_MAX_DELTA_WAD)) /
                 UBKOracleConstants.WAD;
             uint256 upperBound = (lv.price *
-                (UBKOracleConstants.WAD + UBKOracleConstants.ORACLE_MANUAL_PRICE_MAX_DELTA_WAD)) /
+                (UBKOracleConstants.WAD +
+                    UBKOracleConstants.ORACLE_MANUAL_PRICE_MAX_DELTA_WAD)) /
                 UBKOracleConstants.WAD;
             if (price < lowerBound || price > upperBound)
                 revert InvalidManualPrice(token, price);
@@ -245,7 +258,6 @@ contract UBKOracle is IUBKOracle, Ownable {
         } catch {
             revert InvalidFeedContract(feed);
         }
-
         chainlinkFeeds[token] = feed;
         isManual[token] = false;
         _addSupportedToken(token);
@@ -352,7 +364,8 @@ contract UBKOracle is IUBKOracle, Ownable {
     ) external view returns (uint256 usdValue) {
         if (amount == 0) return 0;
         uint8 decimals = IERC20Metadata(token).decimals();
-        uint256 normalized = (amount * UBKOracleConstants.WAD) / (10 ** decimals);
+        uint256 normalized = (amount * UBKOracleConstants.WAD) /
+            (10 ** decimals);
         uint256 price = _getPrice(token); // 18 decimals
         usdValue = (normalized * price) / UBKOracleConstants.WAD;
     }
@@ -385,7 +398,8 @@ contract UBKOracle is IUBKOracle, Ownable {
      * @return price Cached price in 1e18 precision.
      */
     function _getPrice(address token) internal view returns (uint256) {
-        if (token == address(0)) revert ZeroAddress("UBKOracle::getPrice", "token");
+        if (token == address(0))
+            revert ZeroAddress("UBKOracle::getPrice", "token");
         LastValidPrice memory lv = lastValidPrice[token];
         if (lv.price == 0) revert NoFallbackPrice(token);
         if (!this.isPriceFresh(token))

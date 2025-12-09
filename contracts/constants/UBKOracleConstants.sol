@@ -26,9 +26,11 @@ library UBKOracleConstants {
     // -----------------------------------------------------------------------
     // Oracle Staleness Periods
     // -----------------------------------------------------------------------
-    uint256 public constant ORACLE_DEFAULT_STALE_PERIOD = 1 hours;
     uint256 public constant ORACLE_MIN_STALE_PERIOD = 1 hours;
     uint256 public constant ORACLE_MAX_STALE_PERIOD = 48 hours;
+
+    uint256 public constant ORACLE_DEFAULT_STALE_FALLBACK_MULTIPLIER = 2; //2x stale
+    uint256 public constant ORACLE_MAX_STALE_FALLBACK_MULTIPLIER = 3; //3x stale
 
     // -----------------------------------------------------------------------
     // Oracle Recursion
