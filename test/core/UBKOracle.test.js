@@ -1,6 +1,7 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { anyValue } = require("@nomicfoundation/hardhat-chai-matchers/withArgs");
+const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
 let deployer, user, oracle, usdc, dai, sdai, feedUSDC, feedWBTC, feedDAI, wbtc, MockERC20, Mock4626, MockAggregator;
 const DAY = 24 * 60 * 60;
@@ -319,6 +320,53 @@ describe("UBKOracle", function () {
         await expect(oracle.setStalePeriod(usdc.target, DAY * 3))
           .to.be.revertedWithCustomError(oracle, "InvalidStalePeriod");
       });
+
+      it("updates fallbackStalePeriod automatically when stalePeriod is updated", async () => {
+        const stale = 7200; // 2 hours
+        await oracle.setStalePeriod(usdc.target, stale);
+
+        const fallback = await oracle.fallbackStalePeriod(usdc.target);
+        expect(fallback).to.equal(stale * 2); // default multiplier = 2
+      });
+
+      it("maintains independent stalePeriod settings per token", async () => {
+        await oracle.setStalePeriod(usdc.target, 3600);
+        await oracle.setStalePeriod(dai.target, 7200);
+
+        expect(await oracle.stalePeriod(usdc.target)).to.equal(3600);
+        expect(await oracle.stalePeriod(dai.target)).to.equal(7200);
+
+        expect(await oracle.fallbackStalePeriod(usdc.target)).to.equal(3600 * 2);
+        expect(await oracle.fallbackStalePeriod(dai.target)).to.equal(7200 * 2);
+      });
+
+      it("manual price mode ignores stalePeriod and returns instantly", async () => {
+        await oracle.setManualPrice(usdc.target, ethers.parseUnits("1.11", 18));
+
+        // simulate huge time jump
+        await ethers.provider.send("evm_increaseTime", [999999]);
+        await ethers.provider.send("evm_mine");
+
+        await oracle.fetchAndUpdatePrice(usdc.target).then(tx => tx.wait());
+
+        const price = await oracle.getPrice(usdc.target);
+        expect(price).to.equal(ethers.parseUnits("1.11", 18));
+      });
+
+      it("reverts immediately when first Chainlink read is stale and no fallback exists", async () => {
+        await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
+
+        const stale = 3600;
+        await oracle.setStalePeriod(usdc.target, stale);
+
+        // No initial fetchAndUpdatePrice → no cached fallback
+
+        await feedUSDC.setUpdatedAt((await time.latest()) - (stale + 1));
+
+        await expect(
+          oracle.fetchAndUpdatePrice(usdc.target)
+        ).to.be.revertedWithCustomError(oracle, "NoFallbackPrice");
+      });
     });
 
     describe("setFallbackStalePeriod()", function () {
@@ -338,6 +386,25 @@ describe("UBKOracle", function () {
         await oracle.setStalePeriod(usdc.target, 7200); // 2 hours
         await expect(oracle.setFallbackStalePeriod(usdc.target, 3600))
           .to.be.revertedWithCustomError(oracle, "InvalidStalePeriod");
+      });
+
+      it("enforces fallbackStalePeriod bounds", async () => {
+        const stale = 3600;
+        await oracle.setStalePeriod(usdc.target, stale);
+
+        await expect(
+          oracle.setFallbackStalePeriod(usdc.target, stale - 1)
+        ).to.be.revertedWithCustomError(oracle, "InvalidStalePeriod");
+
+        const tooHigh = stale * 3 + 1;
+        await expect(
+          oracle.setFallbackStalePeriod(usdc.target, tooHigh)
+        ).to.be.revertedWithCustomError(oracle, "InvalidStalePeriod");
+
+        // valid
+        const valid = stale * 3;
+        await oracle.setFallbackStalePeriod(usdc.target, valid);
+        expect(await oracle.fallbackStalePeriod(usdc.target)).to.equal(valid);
       });
 
       it("should revert if called by non-owner", async () => {
