@@ -98,32 +98,40 @@ async function main() {
     }
 
     // ---------------------------------------------------------
-    // 3. ERC4626 VAULT REGISTRATION (optional)
+    // 3. ERC4626 VAULT REGISTRATION
     // ---------------------------------------------------------
     console.log("\n===============================================");
     console.log("🔧 Registering ERC4626 vaults...");
     console.log("===============================================\n");
 
+    // Vault → underlying mapping (1:1 pure vaults)
     const VAULTS = {
         mainnet: [
-            // { vault: cfg.tokens.sfrxUSD, underlying: cfg.tokens.frxUSD },
-            // { vault: cfg.tokens.sUSDe, underlying: cfg.tokens.USDe },
-            // { vault: cfg.tokens.syrupUSDC, underlying: cfg.tokens.USDC }
+            { vault: cfg.tokens.sfrxUSD, underlying: cfg.tokens.frxUSD },
+            { vault: cfg.tokens.sUSDe, underlying: cfg.tokens.USDe },
+            { vault: cfg.tokens.syrupUSDC, underlying: cfg.tokens.USDC },
         ],
-        arbitrum: [],
+        arbitrum: [
+            // Add if any vaults exist on Arbitrum deployment
+        ],
     }[cfg.name] || [];
 
     for (const v of VAULTS) {
-        console.log(`→ Vault ${v.vault} → underlying ${v.underlying}`);
+        if (!v.vault || !v.underlying) {
+            console.log(`⚠️ Skipping vault — missing mapping:`, v);
+            continue;
+        }
+
+        console.log(`→ Setting vault ${v.vault} (→ underlying ${v.underlying})`);
+
         try {
             const tx = await oracle.setERC4626Vault(v.vault, v.underlying);
             await tx.wait();
             console.log(`   ✔️ Vault registered`);
         } catch (err) {
-            console.log(`   ❌ Failed vault registration: ${err.reason || err.message}`);
+            console.log(`   ❌ Failed: ${err.reason || err.message}`);
         }
     }
-
     // ---------------------------------------------------------
     // 4. Transfer Ownership to Safe
     // ---------------------------------------------------------
