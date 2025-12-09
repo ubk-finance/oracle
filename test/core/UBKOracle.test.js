@@ -3,6 +3,7 @@ const { ethers } = require("hardhat");
 const { anyValue } = require("@nomicfoundation/hardhat-chai-matchers/withArgs");
 
 let deployer, user, oracle, usdc, dai, sdai, feedUSDC, feedWBTC, feedDAI, wbtc, MockERC20, Mock4626, MockAggregator;
+const DAY = 24 * 60 * 60;
 
 async function setup() {
   const Oracle = await ethers.getContractFactory("UBKOracle");
@@ -24,6 +25,12 @@ async function setup() {
 
   // Mock Chainlink feed (8 decimals)
   feed = await MockAggregator.deploy(1e8, 8); // $1.00
+
+  await oracle.setStalePeriod(usdc.target, DAY);
+  await oracle.setStalePeriod(dai.target, DAY);
+  await oracle.setStalePeriod(wbtc.target, DAY);
+  await oracle.setStalePeriod(sdai.target, DAY);
+
 }
 
 describe("UBKOracle", function () {
@@ -283,34 +290,60 @@ describe("UBKOracle", function () {
       it("should allow owner to update the stale period", async () => {
         const newPeriod = 7200; // 2 hours
 
-        await expect(oracle.setStalePeriod(newPeriod))
-          .to.emit(oracle, "StalePeriodUpdated")
-          .withArgs(newPeriod);
+        await expect(oracle.setStalePeriod(usdc.target, newPeriod)).
+          to.emit(oracle, "StalePeriodUpdated")
+          .withArgs(usdc.target, newPeriod);
 
-        expect(await oracle.stalePeriod()).to.equal(newPeriod);
+        expect(await oracle.stalePeriod(usdc.target)).to.equal(newPeriod);
       });
 
       it("should overwrite stalePeriod if called multiple times", async () => {
         const firstPeriod = 3600;
         const secondPeriod = 3600 * 3;
 
-        await oracle.setStalePeriod(firstPeriod);
-        await oracle.setStalePeriod(secondPeriod);
+        await oracle.setStalePeriod(usdc.target, firstPeriod);
+        await oracle.setStalePeriod(usdc.target, secondPeriod);
 
-        expect(await oracle.stalePeriod()).to.equal(secondPeriod);
+        expect(await oracle.stalePeriod(usdc.target)).to.equal(secondPeriod);
       });
 
       it("should revert if non-owner tries to update stale period", async () => {
         await expect(
-          oracle.connect(user).setStalePeriod(9999)
+          oracle.connect(user).setStalePeriod(usdc.target, 9999)
         ).to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount");
       });
 
       it("should revert if stalePeriod < 1h or > 3h", async () => {
-        await expect(oracle.setStalePeriod(3599))
+        await expect(oracle.setStalePeriod(usdc.target, 3600 - 1))
           .to.be.revertedWithCustomError(oracle, "InvalidStalePeriod");
-        await expect(oracle.setStalePeriod(10801))
+        await expect(oracle.setStalePeriod(usdc.target, DAY * 3))
           .to.be.revertedWithCustomError(oracle, "InvalidStalePeriod");
+      });
+    });
+
+    describe("setFallbackStalePeriod()", function () {
+      it("should allow owner to set fallback stale period ≥ stalePeriod", async () => {
+        const stale = 3600; // 1 hour
+        const fallback = 5400; // 1.5 hours
+
+        await oracle.setStalePeriod(usdc.target, stale);
+        await expect(oracle.setFallbackStalePeriod(usdc.target, fallback))
+          .to.emit(oracle, "FallbackStalePeriodUpdated")
+          .withArgs(usdc.target, fallback);
+
+        expect(await oracle.fallbackStalePeriod(usdc.target)).to.equal(fallback);
+      });
+
+      it("should revert if fallback period < stalePeriod", async () => {
+        await oracle.setStalePeriod(usdc.target, 7200); // 2 hours
+        await expect(oracle.setFallbackStalePeriod(usdc.target, 3600))
+          .to.be.revertedWithCustomError(oracle, "InvalidStalePeriod");
+      });
+
+      it("should revert if called by non-owner", async () => {
+        await expect(
+          oracle.connect(user).setFallbackStalePeriod(usdc.target, 4000)
+        ).to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount");
       });
     });
 
@@ -344,32 +377,6 @@ describe("UBKOracle", function () {
         await expect(oracle.connect(user).setOracleMode(PAUSED))
           .to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount")
           .withArgs(user.address);
-      });
-    });
-
-    describe("setFallbackStalePeriod()", function () {
-      it("should allow owner to set fallback stale period ≥ stalePeriod", async () => {
-        const stale = 3600; // 1 hour
-        const fallback = 5400; // 1.5 hours
-
-        await oracle.setStalePeriod(stale);
-        await expect(oracle.setFallbackStalePeriod(fallback))
-          .to.emit(oracle, "FallbackStalePeriodUpdated")
-          .withArgs(fallback);
-
-        expect(await oracle.fallbackStalePeriod()).to.equal(fallback);
-      });
-
-      it("should revert if fallback period < stalePeriod", async () => {
-        await oracle.setStalePeriod(7200); // 2 hours
-        await expect(oracle.setFallbackStalePeriod(3600))
-          .to.be.revertedWithCustomError(oracle, "InvalidStalePeriod");
-      });
-
-      it("should revert if called by non-owner", async () => {
-        await expect(
-          oracle.connect(user).setFallbackStalePeriod(4000)
-        ).to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount");
       });
     });
 
@@ -435,7 +442,6 @@ describe("UBKOracle", function () {
         // Internally this passes: defaultMin = 0.2e18, defaultMax = 3e18
       });
     });
-
   })
 
   describe("External API", function () {

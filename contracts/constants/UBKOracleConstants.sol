@@ -3,7 +3,6 @@ pragma solidity ^0.8.20;
 
 import "@ubk-labs/ubk-commons/contracts/constants/UBKConstants.sol";
 
-
 library UBKOracleConstants {
     // -----------------------------------------------------------------------
     // UBK System Constants
@@ -27,12 +26,14 @@ library UBKOracleConstants {
     // -----------------------------------------------------------------------
     // Oracle Staleness Periods
     // -----------------------------------------------------------------------
-    uint256 public constant ORACLE_DEFAULT_STALE_PERIOD = 1 hours;
     uint256 public constant ORACLE_MIN_STALE_PERIOD = 1 hours;
-    uint256 public constant ORACLE_MAX_STALE_PERIOD = 3 hours;
+    uint256 public constant ORACLE_MAX_STALE_PERIOD = 48 hours;
+
+    uint256 public constant ORACLE_DEFAULT_STALE_FALLBACK_MULTIPLIER = 2; //2x stale
+    uint256 public constant ORACLE_MAX_STALE_FALLBACK_MULTIPLIER = 3; //3x stale
 
     // -----------------------------------------------------------------------
     // Oracle Recursion
     // -----------------------------------------------------------------------
-    uint256 public constant MAX_RECURSION_DEPTH = 5;
+    uint256 public constant ORACLE_MAX_RECURSION_DEPTH = 5;
 }
