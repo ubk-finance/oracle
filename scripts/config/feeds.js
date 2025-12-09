@@ -1,8 +1,9 @@
-export const CHAINLINK_FEEDS = {
-    ARB_ONE: ARBITRUM_ONE_FEEDS,
-    ETH_MAIN: ETHEREUM_MAINNET_FEEDS
+module.exports = {
+    CHAINLINK_FEEDS: {
+        ARB_ONE: ARBITRUM_ONE_FEEDS,
+        ETH_MAIN: ETHEREUM_MAINNET_FEEDS,
+    },
 };
-
 /**
  * Chainlink price feeds for supported assets on Arbitrum One.
  * All feeds normalized to USD pairs.
