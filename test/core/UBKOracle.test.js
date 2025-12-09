@@ -746,6 +746,80 @@ describe("UBKOracle", function () {
         });
       });
     });
+
+    describe("getPriceAge()", function () {
+      beforeEach(async () => {
+        await setup();
+        await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
+      });
+
+      it("returns max uint when no price has ever been set", async () => {
+        const age = await oracle.getPriceAge(usdc.target);
+        expect(age).to.equal(ethers.MaxUint256);
+      });
+
+      it("returns 0 immediately after fetchAndUpdatePrice()", async () => {
+        await oracle.fetchAndUpdatePrice(usdc.target);
+
+        const age = await oracle.getPriceAge(usdc.target);
+        expect(age).to.equal(0n);
+      });
+
+      it("returns correct age after time passes", async () => {
+        await oracle.fetchAndUpdatePrice(usdc.target);
+
+        // simulate 500 seconds passing
+        await ethers.provider.send("evm_increaseTime", [500]);
+        await ethers.provider.send("evm_mine");
+
+        const age = await oracle.getPriceAge(usdc.target);
+        expect(age).to.equal(500n);
+      });
+    });
+
+    describe("isPriceFresh()", function () {
+      beforeEach(async () => {
+        await setup();
+        await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
+
+        // stalePeriod defaults to 1 day in your setup
+        await oracle.fetchAndUpdatePrice(usdc.target);
+      });
+
+      it("returns true immediately after price update", async () => {
+        const fresh = await oracle.isPriceFresh(usdc.target);
+        expect(fresh).to.equal(true);
+      });
+
+      it("returns true when age < stalePeriod", async () => {
+        await ethers.provider.send("evm_increaseTime", [3600]); // +1 hour
+        await ethers.provider.send("evm_mine");
+
+        const fresh = await oracle.isPriceFresh(usdc.target);
+        expect(fresh).to.equal(true);
+      });
+
+      it("returns false when age exceeds stalePeriod", async () => {
+        const stale = 3600; // 1h
+        await oracle.setStalePeriod(usdc.target, stale);
+
+        // exceed stalePeriod
+        await ethers.provider.send("evm_increaseTime", [stale + 1]);
+        await ethers.provider.send("evm_mine");
+
+        const fresh = await oracle.isPriceFresh(usdc.target);
+        expect(fresh).to.equal(false);
+      });
+
+      it("returns false when no price exists", async () => {
+        // New token, no price history
+        const token2 = dai.target;
+
+        const fresh = await oracle.isPriceFresh(token2);
+        expect(fresh).to.equal(false);
+      });
+    });
+
   });
 })
 
