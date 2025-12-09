@@ -63,10 +63,10 @@ contract UBKOracle is IUBKOracle, Ownable {
     mapping(address => VaultRateBounds) public vaultRateBounds;
 
     /// @notice Maximum staleness period for Chainlink feeds (seconds).
-    mapping(address => uint256) stalePeriod;
+    mapping(address => uint256) public stalePeriod;
 
     /// @notice Staleness tolerance for fallback prices (seconds).
-    mapping(address => uint256) fallbackStalePeriod;
+    mapping(address => uint256) public fallbackStalePeriod;
 
     OracleMode public mode = OracleMode.NORMAL;
 
@@ -101,7 +101,7 @@ contract UBKOracle is IUBKOracle, Ownable {
 
     /// @notice Prevents infinite recursion when resolving nested ERC4626 vaults.
     modifier checkRecursion() {
-        if (_recursionDepth >= UBKOracleConstants.MAX_RECURSION_DEPTH)
+        if (_recursionDepth >= UBKOracleConstants.ORACLE_MAX_RECURSION_DEPTH)
             revert RecursiveResolution(address(0));
         _recursionDepth++;
         _;
@@ -136,7 +136,8 @@ contract UBKOracle is IUBKOracle, Ownable {
         fallbackStalePeriod[token] =
             UBKOracleConstants.ORACLE_DEFAULT_STALE_FALLBACK_MULTIPLIER *
             period; //Minimum fallback period should be 2x stalePeriod[token].
-        emit StalePeriodUpdated(token, period);
+        emit StalePeriodUpdated(token, stalePeriod[token]);
+        emit FallbackStalePeriodUpdated(token, fallbackStalePeriod[token]);
     }
 
     /**

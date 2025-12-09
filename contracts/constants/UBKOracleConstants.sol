@@ -35,5 +35,5 @@ library UBKOracleConstants {
     // -----------------------------------------------------------------------
     // Oracle Recursion
     // -----------------------------------------------------------------------
-    uint256 public constant MAX_RECURSION_DEPTH = 5;
+    uint256 public constant ORACLE_MAX_RECURSION_DEPTH = 5;
 }
