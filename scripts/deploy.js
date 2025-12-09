@@ -4,6 +4,9 @@ const { ethers, network } = require("hardhat");
 const { TOKEN_ADDRESSES } = require("./config/tokens.js");
 const { CHAINLINK_FEEDS } = require("./config/feeds.js");
 
+const fs = require("fs");
+const path = require("path");
+
 // SAFE OWNERS PER NETWORK (expandable)
 const SAFE_OWNERS = {
     mainnet: "0x8c97e0A2e37EFd2c052D4a420AbBa76dc9ea5AEF",
@@ -65,11 +68,34 @@ async function main() {
     const Oracle = await ethers.getContractFactory("UBKOracle");
     console.log("⏳ Deploying UBKOracle...");
 
-    const oracle = await Oracle.deploy(deployer.address);
-    await oracle.waitForDeployment();
+    const oracle = await Oracle.deploy(
+        deployer.address,
+        { gasLimit: 2500000 }    // << add this
+    ); await oracle.waitForDeployment();
 
     const oracleAddr = await oracle.getAddress();
     console.log(`✅ UBKOracle deployed at: ${oracleAddr}\n`);
+
+    // ---------------------------------------------------------
+    // Save deployment to JSON
+    // ---------------------------------------------------------
+    const deploymentsDir = path.join(__dirname, "deployments");
+    const outputFile = path.join(deploymentsDir, `${cfg.name}.json`);
+
+    // ensure directory exists
+    if (!fs.existsSync(deploymentsDir)) {
+        fs.mkdirSync(deploymentsDir);
+    }
+
+    // object to write
+    const deploymentData = {
+        UBKOracle: oracleAddr
+    };
+
+    // write JSON
+    fs.writeFileSync(outputFile, JSON.stringify(deploymentData, null, 4));
+
+    console.log(`💾 Deployment saved to: ${outputFile}\n`);
 
     // ---------------------------------------------------------
     // 2. Configure Chainlink Feeds
