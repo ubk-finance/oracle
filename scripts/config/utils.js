@@ -1,8 +1,8 @@
 const { network } = require("hardhat");
 
-import { SAFE_OWNERS } from "./owners";
 const { TOKEN_ADDRESSES } = require("./tokens.js");
 const { CHAINLINK_FEEDS } = require("./feeds.js");
+const { SAFE_OWNERS } = require("./owners.js");
 
 function getNetworkConfig() {
     const net = network.name;

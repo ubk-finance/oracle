@@ -1,8 +1,8 @@
 const { ethers } = require("hardhat");
-import { getNetworkConfig } from "./config/utils";
-
 const fs = require("fs");
 const path = require("path");
+
+const { getNetworkConfig } = require("./config/utils");
 
 async function main() {
     const cfg = getNetworkConfig();
