@@ -1,6 +1,6 @@
 {
   "name": "@ubk-labs/ubk-oracle",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Oracle supporting ERC-20 and ERC-4626 assets for use in decentralized financial applications.",
   "scripts": {
     "build": "npx hardhat compile",
