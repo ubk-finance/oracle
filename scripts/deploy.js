@@ -1,55 +1,8 @@
-const { ethers, network } = require("hardhat");
-
-// IMPORT CONFIG
-const { TOKEN_ADDRESSES } = require("./config/tokens.js");
-const { CHAINLINK_FEEDS } = require("./config/feeds.js");
+const { ethers } = require("hardhat");
+import { getNetworkConfig } from "./config/utils";
 
 const fs = require("fs");
 const path = require("path");
-
-// SAFE OWNERS PER NETWORK (expandable)
-const SAFE_OWNERS = {
-    mainnet: "0x8c97e0A2e37EFd2c052D4a420AbBa76dc9ea5AEF",
-    arbitrum: "0x0000000000000000000000000000000000000002",// dummy
-    hardhat: "0x0000000000000000000000000000000000000001", // dummy
-};
-
-function getNetworkConfig() {
-    const net = network.name;
-
-    if (!TOKEN_ADDRESSES.ETH_MAIN && !TOKEN_ADDRESSES.ARB_ONE) {
-        throw new Error("Token config missing");
-    }
-
-    if (net === "mainnet") {
-        return {
-            name: net,
-            tokens: TOKEN_ADDRESSES.ETH_MAIN,
-            feeds: CHAINLINK_FEEDS.ETH_MAIN,
-            safe: SAFE_OWNERS.mainnet,
-        };
-    }
-
-    if (net === "arbitrum") {
-        return {
-            name: net,
-            tokens: TOKEN_ADDRESSES.ARB_ONE,
-            feeds: CHAINLINK_FEEDS.ARB_ONE,
-            safe: SAFE_OWNERS.arbitrum,
-        };
-    }
-
-    if (net === "hardhat" || net === "localhost") {
-        return {
-            name: net,
-            tokens: TOKEN_ADDRESSES.ETH_MAIN,   // use mainnet config by default
-            feeds: CHAINLINK_FEEDS.ETH_MAIN,
-            safe: SAFE_OWNERS.hardhat,
-        };
-    }
-
-    throw new Error(`Unsupported network: ${net}`);
-}
 
 async function main() {
     const cfg = getNetworkConfig();
