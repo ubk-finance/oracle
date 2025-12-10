@@ -108,8 +108,12 @@ async function main() {
         console.log(`→ Setting vault ${v.vault} (→ underlying ${v.underlying})`);
 
         try {
-            const tx = await oracle.setERC4626Vault(v.vault, v.underlying);
-            await tx.wait();
+            const tx1 = await oracle.setERC4626Vault(v.vault, v.underlying);
+            await tx1.wait();
+
+            const tx2 = await oracle.setStalePeriod(v.vault, ONE_DAY);
+            await tx2.wait();
+
             console.log(`   ✔️ Vault registered`);
         } catch (err) {
             console.log(`   ❌ Failed: ${err.reason || err.message}`);
