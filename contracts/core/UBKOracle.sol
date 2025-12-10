@@ -323,17 +323,6 @@ contract UBKOracle is IUBKOracle, Ownable {
         return block.timestamp - lv.timestamp;
     }
 
-    /**
-     * @notice Checks if cached price is within freshness threshold.
-     * @param token Token address.
-     * @return isFresh True if price updated ≤ stalePeriod ago.
-     */
-    function _isPriceFresh(address token) internal view returns (bool isFresh) {
-        LastValidPrice memory lv = lastValidPrice[token];
-        return (lv.timestamp != 0 &&
-            block.timestamp - lv.timestamp <= stalePeriod[token]);
-    }
-
     /** Public wrapper for _isPriceFresh
      * @notice Checks if cached price is within freshness threshold.
      * @return isFresh True if price updated ≤ stalePeriod ago.
@@ -415,6 +404,18 @@ contract UBKOracle is IUBKOracle, Ownable {
             revert StalePrice(token, lv.timestamp, block.timestamp);
         return lv.price;
     }
+
+    /**
+     * @notice Checks if cached price is within freshness threshold.
+     * @param token Token address.
+     * @return isFresh True if price updated ≤ stalePeriod ago.
+     */
+    function _isPriceFresh(address token) internal view returns (bool isFresh) {
+        LastValidPrice memory lv = lastValidPrice[token];
+        return (lv.timestamp != 0 &&
+            block.timestamp - lv.timestamp <= stalePeriod[token]);
+    }
+    
     /**
      * @notice Resolves the fair price of an ERC4626 vault share.
      * @param vault ERC4626 vault token address.
