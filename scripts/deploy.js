@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 
 const { getNetworkConfig } = require("./config/utils");
+const ONE_DAY = 24 * 60 * 60; //24 hours in seconds. Default stale period.
 
 async function main() {
     const cfg = getNetworkConfig();
@@ -68,8 +69,11 @@ async function main() {
 
         console.log(`→ Registering feed for ${symbol}`);
         try {
-            const tx = await oracle.setChainlinkFeed(token, feed);
-            await tx.wait();
+            const tx1 = await oracle.setChainlinkFeed(token, feed);
+            await tx1.wait();
+
+            const tx2 = await oracle.setStalePeriod(token, ONE_DAY);
+            await tx2.wait();
             console.log(`   ✔️  ${symbol} feed set`);
         } catch (err) {
             console.log(`   ❌ Failed: ${symbol} — ${err.reason || err.message}`);
