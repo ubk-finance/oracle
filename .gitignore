@@ -7,9 +7,6 @@ typechain/
 typechain-types/
 artifacts/
 
-# Deployment data
-deployments/
-
 # Environment variables
 .env
 
