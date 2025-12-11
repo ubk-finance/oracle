@@ -313,6 +313,36 @@ contract UBKOracle is IUBKOracle, Ownable {
     }
 
     /**
+     * @notice Batch price fetch & update for multiple tokens.
+     * @param tokens Array of asset token addresses.
+     * @return prices Array of fresh prices in 1e18 precision.
+     *
+     * @dev
+     *  - Runs whenNotPaused modifier.
+     *  - Reverts if any token is zero address.
+     *  - Each iteration calls the same internal `_fetchAndUpdatePrice`.
+     *  - Gas-efficient: msg.sender checked once, calldata parsed once.
+     */
+    function fetchAndUpdatePrice(
+        address[] calldata tokens
+    ) external whenNotPaused returns (uint256[] memory prices) {
+        uint256 len = tokens.length;
+        prices = new uint256[](len);
+
+        for (uint256 i = 0; i < len; ++i) {
+            address token = tokens[i];
+            if (token == address(0)) {
+                revert ZeroAddress(
+                    "UBKOracle::fetchAndUpdatePriceBatch",
+                    "token"
+                );
+            }
+
+            prices[i] = _fetchAndUpdatePrice(token);
+        }
+    }
+
+    /**
      * @notice Returns age of last cached price in seconds.
      * @param token Token address.
      * @return age Time since lastValidPrice update.
@@ -415,7 +445,7 @@ contract UBKOracle is IUBKOracle, Ownable {
         return (lv.timestamp != 0 &&
             block.timestamp - lv.timestamp <= stalePeriod[token]);
     }
-    
+
     /**
      * @notice Resolves the fair price of an ERC4626 vault share.
      * @param vault ERC4626 vault token address.
