@@ -715,6 +715,92 @@ describe("UBKOracle", function () {
       });
     });
 
+    describe("Batch fetchAndUpdatePrice(address[])", function () {
+      beforeEach(async () => {
+        await setup();
+
+        // configure feeds
+        await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
+        await oracle.setChainlinkFeed(dai.target, feedDAI.target);
+        await oracle.setChainlinkFeed(wbtc.target, feedWBTC.target);
+
+        // prime initial prices
+        await oracle["fetchAndUpdatePrice(address)"](usdc.target);
+        await oracle["fetchAndUpdatePrice(address)"](dai.target);
+        await oracle["fetchAndUpdatePrice(address)"](wbtc.target);
+      });
+
+      it("updates multiple tokens in one call", async () => {
+        const tokens = [usdc.target, dai.target, wbtc.target];
+
+        const tx = await oracle["fetchAndUpdatePrice(address[])"](tokens);
+        await tx.wait();
+
+        const p1 = await oracle.getPrice(usdc.target);
+        const p2 = await oracle.getPrice(dai.target);
+        const p3 = await oracle.getPrice(wbtc.target);
+
+        expect(p1).to.equal(ethers.parseUnits("1", 18));
+        expect(p2).to.equal(ethers.parseUnits("1", 18));
+        expect(p3).to.equal(ethers.parseUnits("25000", 18));
+      });
+
+      it("emits LastValidPriceUpdated for each token", async () => {
+        const tokens = [usdc.target, dai.target, wbtc.target];
+
+        await expect(oracle["fetchAndUpdatePrice(address[])"](tokens))
+          .to.emit(oracle, "LastValidPriceUpdated").withArgs(usdc.target, anyValue, anyValue)
+          .and.to.emit(oracle, "LastValidPriceUpdated").withArgs(dai.target, anyValue, anyValue)
+          .and.to.emit(oracle, "LastValidPriceUpdated").withArgs(wbtc.target, anyValue, anyValue);
+      });
+
+      it("returns array of updated prices in correct order", async () => {
+        const tokens = [dai.target, wbtc.target, usdc.target];
+
+        const tx = await oracle["fetchAndUpdatePrice(address[])"](tokens);
+        const receipt = await tx.wait();
+
+        const out0 = await oracle.getPrice(dai.target);  // 1
+        const out1 = await oracle.getPrice(wbtc.target); // 25000
+        const out2 = await oracle.getPrice(usdc.target); // 1
+
+        expect(out0).to.equal(ethers.parseUnits("1", 18));
+        expect(out1).to.equal(ethers.parseUnits("25000", 18));
+        expect(out2).to.equal(ethers.parseUnits("1", 18));
+      });
+
+      it("falls back token-by-token without reverting entire batch", async () => {
+        // Make DAI feed invalid or stale
+        await feedDAI.updateAnswer(0); // bad feed answer
+
+        const tokens = [usdc.target, dai.target, wbtc.target];
+
+        // Call batch update
+        const tx = await oracle["fetchAndUpdatePrice(address[])"](tokens);
+        await tx.wait();
+
+        // USDC should be fine
+        const pUSDC = await oracle.getPrice(usdc.target);
+        expect(pUSDC).to.equal(ethers.parseUnits("1", 18));
+
+        // DAI should fall back to lastValidPrice
+        const pDAI = await oracle.getPrice(dai.target);
+        expect(pDAI).to.equal(ethers.parseUnits("1", 18)); // from setup()
+
+        // WBTC should be fine
+        const pWBTC = await oracle.getPrice(wbtc.target);
+        expect(pWBTC).to.equal(ethers.parseUnits("25000", 18));
+      });
+
+      it("reverts only if mode=PAUSED (entire batch blocked)", async () => {
+        await oracle.setOracleMode(1); // PAUSED enum
+
+        await expect(
+          oracle["fetchAndUpdatePrice(address[])"]([usdc.target, dai.target])
+        ).to.be.revertedWithCustomError(oracle, "OraclePaused");
+      });
+    });
+
     describe("getPrice()", function () {
       beforeEach(async () => {
         await setup();
@@ -911,7 +997,6 @@ describe("UBKOracle", function () {
         expect(fresh).to.equal(false);
       });
     });
-
   });
 })
 
