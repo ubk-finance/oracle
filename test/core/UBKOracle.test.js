@@ -130,14 +130,14 @@ describe("UBKOracle", function () {
       it("treats a negative Chainlink answer as invalid and falls back", async () => {
         // 1. Seed oracle with a valid cached price
         await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
-        await oracle.fetchAndUpdatePrice(usdc.target);
+        await oracle["fetchAndUpdatePrice(address)"](usdc.target);
         const cached = await oracle.getPrice(usdc.target);
 
         // 2. Make Chainlink return a negative answer
         await feedUSDC.updateAnswer(-100_000_000); // e.g. -1.0 * 1e8
 
         // 3. fetchAndUpdatePrice() should fall back to cached value
-        await expect(oracle.fetchAndUpdatePrice(usdc.target))
+        await expect(oracle["fetchAndUpdatePrice(address)"](usdc.target))
           .to.emit(oracle, "OracleFallbackUsed")
           .withArgs(usdc.target, cached, anyValue, "Chainlink failure");
 
@@ -222,7 +222,7 @@ describe("UBKOracle", function () {
         await sdai.setExchangeRate(0);
 
         await expect(
-          oracle.fetchAndUpdatePrice(sdai.target)
+          oracle["fetchAndUpdatePrice(address)"](sdai.target)
         ).to.be.revertedWithCustomError(oracle, "InvalidVaultExchangeRate");
       });
 
@@ -234,7 +234,7 @@ describe("UBKOracle", function () {
         await sdai.setExchangeRate(ethers.parseUnits("1000", 18)); // insane APY
 
         await expect(
-          oracle.fetchAndUpdatePrice(sdai.target)
+          oracle["fetchAndUpdatePrice(address)"](sdai.target)
         ).to.be.revertedWithCustomError(oracle, "SuspiciousVaultRate");
       });
 
@@ -285,7 +285,7 @@ describe("UBKOracle", function () {
 
       it("should revert if manual price deviates >10% from last valid price", async () => {
         await oracle.setChainlinkFeed(usdc.target, feed.target);
-        await oracle.fetchAndUpdatePrice(usdc.target); // establishes baseline = $1
+        await oracle["fetchAndUpdatePrice(address)"](usdc.target); // establishes baseline = $1
         const invalidHigh = ethers.parseUnits("1.20", 18); // +20%
         await expect(oracle.setManualPrice(usdc.target, invalidHigh))
           .to.be.revertedWithCustomError(oracle, "InvalidManualPrice");
@@ -401,7 +401,7 @@ describe("UBKOracle", function () {
         await ethers.provider.send("evm_increaseTime", [999999]);
         await ethers.provider.send("evm_mine");
 
-        await oracle.fetchAndUpdatePrice(usdc.target).then(tx => tx.wait());
+        await oracle["fetchAndUpdatePrice(address)"](usdc.target).then(tx => tx.wait());
 
         const price = await oracle.getPrice(usdc.target);
         expect(price).to.equal(ethers.parseUnits("1.11", 18));
@@ -418,7 +418,7 @@ describe("UBKOracle", function () {
         await feedUSDC.setUpdatedAt((await time.latest()) - (stale + 1));
 
         await expect(
-          oracle.fetchAndUpdatePrice(usdc.target)
+          oracle["fetchAndUpdatePrice(address)"](usdc.target)
         ).to.be.revertedWithCustomError(oracle, "NoFallbackPrice");
       });
     });
@@ -554,7 +554,7 @@ describe("UBKOracle", function () {
         await oracle.setChainlinkFeed(dai.target, feed.target);
 
         // Now fetch and verify that the defaults are accepted (rate = 1.02)
-        const tx = await oracle.fetchAndUpdatePrice(sdai.target);
+        const tx = await oracle["fetchAndUpdatePrice(address)"](sdai.target);
         const receipt = await tx.wait();
 
         const price = await oracle.getPrice(sdai.target);
@@ -575,7 +575,7 @@ describe("UBKOracle", function () {
         const manualPrice = ethers.parseUnits("1.23", 18);
         await oracle.setManualPrice(usdc.target, manualPrice);
 
-        const tx = await oracle.fetchAndUpdatePrice(usdc.target);
+        const tx = await oracle["fetchAndUpdatePrice(address)"](usdc.target);
         await tx.wait();
 
         const price = await oracle.getPrice(usdc.target);
@@ -588,7 +588,7 @@ describe("UBKOracle", function () {
 
         const expected = ethers.parseUnits("1.02", 18); // from mocked oracle exchange rate
 
-        const tx = await oracle.fetchAndUpdatePrice(sdai.target);
+        const tx = await oracle["fetchAndUpdatePrice(address)"](sdai.target);
         await tx.wait();
 
         const price = await oracle.getPrice(sdai.target);
@@ -599,7 +599,7 @@ describe("UBKOracle", function () {
         await oracle.setChainlinkFeed(usdc.target, feed.target);
 
         // Call fetchAndUpdatePrice()
-        const tx = await oracle.fetchAndUpdatePrice(usdc.target);
+        const tx = await oracle["fetchAndUpdatePrice(address)"](usdc.target);
         const receipt = await tx.wait();
 
         // --- verify return value ---
@@ -612,7 +612,7 @@ describe("UBKOracle", function () {
         expect(last.timestamp).to.be.gt(0);
 
         // --- verify event emitted ---
-        await expect(oracle.fetchAndUpdatePrice(usdc.target))
+        await expect(oracle["fetchAndUpdatePrice(address)"](usdc.target))
           .to.emit(oracle, "LastValidPriceUpdated")
           .withArgs(usdc.target, ethers.parseUnits("1", 18), anyValue);
       });
@@ -621,7 +621,7 @@ describe("UBKOracle", function () {
         await oracle.setChainlinkFeed(usdc.target, feed.target); // returns 1e8 with 8 decimals
         const expected = ethers.parseUnits("1", 18);
 
-        let tx = await oracle.fetchAndUpdatePrice(usdc.target);
+        let tx = await oracle["fetchAndUpdatePrice(address)"](usdc.target);
         await tx.wait();
 
         price = await oracle.getPrice(usdc.target);
@@ -631,7 +631,7 @@ describe("UBKOracle", function () {
       it("should emit LastValidPriceUpdated", async () => {
         await oracle.setChainlinkFeed(usdc.target, feed.target);
 
-        await expect(oracle.fetchAndUpdatePrice(usdc.target))
+        await expect(oracle["fetchAndUpdatePrice(address)"](usdc.target))
           .to.emit(oracle, "LastValidPriceUpdated")
           .withArgs(usdc.target, ethers.parseUnits("1", 18), anyValue);
       });
@@ -639,7 +639,7 @@ describe("UBKOracle", function () {
       it("should fallback to lastValidPrice if Chainlink data is stale", async () => {
         // Step 1: Get initial valid price
         await oracle.setChainlinkFeed(usdc.target, feed.target);
-        await oracle.fetchAndUpdatePrice(usdc.target);
+        await oracle["fetchAndUpdatePrice(address)"](usdc.target);
         const price1 = await oracle.getPrice(usdc.target);
 
         // Step 2: Get current blockchain timestamp
@@ -655,7 +655,7 @@ describe("UBKOracle", function () {
         await oracle.setChainlinkFeed(usdc.target, staleFeed.target);
 
         // Step 4: Fetch should fallback gracefully and emit correct event (within fallbackStalePeriod)
-        expect(await oracle.fetchAndUpdatePrice(usdc.target))
+        expect(await oracle["fetchAndUpdatePrice(address)"](usdc.target))
           .to.emit(oracle, "OracleFallbackUsed")
           .withArgs(usdc.target, price1, anyValue, "Chainlink failure");
 
@@ -667,14 +667,14 @@ describe("UBKOracle", function () {
       it("should fallback to lastValidPrice if Chainlink returns invalid answer (not stale)", async () => {
         // Step 1: Set initial valid price
         await oracle.setChainlinkFeed(usdc.target, feed.target);
-        await oracle.fetchAndUpdatePrice(usdc.target);
+        await oracle["fetchAndUpdatePrice(address)"](usdc.target);
         const price1 = await oracle.getPrice(usdc.target);
 
         // Step 2: Simulate oracle attack - invalid answer but fresh timestamp
         await feed.updateAnswer(0); // Invalid price (0 or negative)
 
         // Step 3: Fetch should fallback gracefully and emit the correct event (feed is fresh but invalid)
-        expect(await oracle.fetchAndUpdatePrice(usdc.target))
+        expect(await oracle["fetchAndUpdatePrice(address)"](usdc.target))
           .to.emit(oracle, "OracleFallbackUsed")
           .withArgs(usdc.target, price1, anyValue, "Chainlink failure");
 
@@ -685,19 +685,19 @@ describe("UBKOracle", function () {
       });
 
       it("should revert if token is zero address", async () => {
-        await expect(oracle.fetchAndUpdatePrice(ethers.ZeroAddress))
+        await expect(oracle["fetchAndUpdatePrice(address)"](ethers.ZeroAddress))
           .to.be.revertedWithCustomError(oracle, "ZeroAddress");
       });
 
       it("should revert if oracle is paused", async () => {
         await oracle.setOracleMode(1); // PAUSED enum value
-        await expect(oracle.fetchAndUpdatePrice(usdc.target))
+        await expect(oracle["fetchAndUpdatePrice(address)"](usdc.target))
           .to.be.revertedWithCustomError(oracle, "OraclePaused");
       });
 
       it("reverts with StaleFallback when cached fallback is older than fallbackStalePeriod", async () => {
         await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
-        await oracle.fetchAndUpdatePrice(usdc.target); // establish valid price
+        await oracle["fetchAndUpdatePrice(address)"](usdc.target); // establish valid price
         const stale = 3600;
 
         await oracle.setStalePeriod(usdc.target, stale); // fallback = 2 * stale = 7200
@@ -710,8 +710,94 @@ describe("UBKOracle", function () {
         await feedUSDC.setUpdatedAt((await time.latest()) - (stale + 1));
 
         await expect(
-          oracle.fetchAndUpdatePrice(usdc.target)
+          oracle["fetchAndUpdatePrice(address)"](usdc.target)
         ).to.be.revertedWithCustomError(oracle, "StaleFallback");
+      });
+    });
+
+    describe("Batch fetchAndUpdatePrice(address[])", function () {
+      beforeEach(async () => {
+        await setup();
+
+        // configure feeds
+        await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
+        await oracle.setChainlinkFeed(dai.target, feedDAI.target);
+        await oracle.setChainlinkFeed(wbtc.target, feedWBTC.target);
+
+        // prime initial prices
+        await oracle["fetchAndUpdatePrice(address)"](usdc.target);
+        await oracle["fetchAndUpdatePrice(address)"](dai.target);
+        await oracle["fetchAndUpdatePrice(address)"](wbtc.target);
+      });
+
+      it("updates multiple tokens in one call", async () => {
+        const tokens = [usdc.target, dai.target, wbtc.target];
+
+        const tx = await oracle["fetchAndUpdatePrice(address[])"](tokens);
+        await tx.wait();
+
+        const p1 = await oracle.getPrice(usdc.target);
+        const p2 = await oracle.getPrice(dai.target);
+        const p3 = await oracle.getPrice(wbtc.target);
+
+        expect(p1).to.equal(ethers.parseUnits("1", 18));
+        expect(p2).to.equal(ethers.parseUnits("1", 18));
+        expect(p3).to.equal(ethers.parseUnits("25000", 18));
+      });
+
+      it("emits LastValidPriceUpdated for each token", async () => {
+        const tokens = [usdc.target, dai.target, wbtc.target];
+
+        await expect(oracle["fetchAndUpdatePrice(address[])"](tokens))
+          .to.emit(oracle, "LastValidPriceUpdated").withArgs(usdc.target, anyValue, anyValue)
+          .and.to.emit(oracle, "LastValidPriceUpdated").withArgs(dai.target, anyValue, anyValue)
+          .and.to.emit(oracle, "LastValidPriceUpdated").withArgs(wbtc.target, anyValue, anyValue);
+      });
+
+      it("returns array of updated prices in correct order", async () => {
+        const tokens = [dai.target, wbtc.target, usdc.target];
+
+        const tx = await oracle["fetchAndUpdatePrice(address[])"](tokens);
+        const receipt = await tx.wait();
+
+        const out0 = await oracle.getPrice(dai.target);  // 1
+        const out1 = await oracle.getPrice(wbtc.target); // 25000
+        const out2 = await oracle.getPrice(usdc.target); // 1
+
+        expect(out0).to.equal(ethers.parseUnits("1", 18));
+        expect(out1).to.equal(ethers.parseUnits("25000", 18));
+        expect(out2).to.equal(ethers.parseUnits("1", 18));
+      });
+
+      it("falls back token-by-token without reverting entire batch", async () => {
+        // Make DAI feed invalid or stale
+        await feedDAI.updateAnswer(0); // bad feed answer
+
+        const tokens = [usdc.target, dai.target, wbtc.target];
+
+        // Call batch update
+        const tx = await oracle["fetchAndUpdatePrice(address[])"](tokens);
+        await tx.wait();
+
+        // USDC should be fine
+        const pUSDC = await oracle.getPrice(usdc.target);
+        expect(pUSDC).to.equal(ethers.parseUnits("1", 18));
+
+        // DAI should fall back to lastValidPrice
+        const pDAI = await oracle.getPrice(dai.target);
+        expect(pDAI).to.equal(ethers.parseUnits("1", 18)); // from setup()
+
+        // WBTC should be fine
+        const pWBTC = await oracle.getPrice(wbtc.target);
+        expect(pWBTC).to.equal(ethers.parseUnits("25000", 18));
+      });
+
+      it("reverts only if mode=PAUSED (entire batch blocked)", async () => {
+        await oracle.setOracleMode(1); // PAUSED enum
+
+        await expect(
+          oracle["fetchAndUpdatePrice(address[])"]([usdc.target, dai.target])
+        ).to.be.revertedWithCustomError(oracle, "OraclePaused");
       });
     });
 
@@ -719,7 +805,7 @@ describe("UBKOracle", function () {
       beforeEach(async () => {
         await setup();
         await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
-        await oracle.fetchAndUpdatePrice(usdc.target);
+        await oracle["fetchAndUpdatePrice(address)"](usdc.target);
       });
 
       it("reverts with StalePrice when lastValidPrice is older than stalePeriod", async () => {
@@ -737,7 +823,7 @@ describe("UBKOracle", function () {
     describe("toUSD() + fromUSD()", function () {
       it("correctly converts 6-decimal USDC to USD", async () => {
         await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
-        await oracle.fetchAndUpdatePrice(usdc.target);
+        await oracle["fetchAndUpdatePrice(address)"](usdc.target);
 
         const amount = ethers.parseUnits("123.456789", 6);
         const usd = await oracle.toUSD(usdc.target, amount);
@@ -747,7 +833,7 @@ describe("UBKOracle", function () {
 
       it("correctly converts 8-decimal WBTC to USD", async () => {
         await oracle.setChainlinkFeed(wbtc.target, feedWBTC.target);
-        await oracle.fetchAndUpdatePrice(wbtc.target);
+        await oracle["fetchAndUpdatePrice(address)"](wbtc.target);
 
         const amount = ethers.parseUnits("1", 8);
         const usd = await oracle.toUSD(wbtc.target, amount);
@@ -762,10 +848,10 @@ describe("UBKOracle", function () {
 
         await oracle.setERC4626Vault(sdai.target, dai.target); // 18d
 
-        await oracle.fetchAndUpdatePrice(sdai.target);
-        await oracle.fetchAndUpdatePrice(dai.target);
-        await oracle.fetchAndUpdatePrice(usdc.target);
-        await oracle.fetchAndUpdatePrice(wbtc.target);
+        await oracle["fetchAndUpdatePrice(address)"](sdai.target);
+        await oracle["fetchAndUpdatePrice(address)"](dai.target);
+        await oracle["fetchAndUpdatePrice(address)"](usdc.target);
+        await oracle["fetchAndUpdatePrice(address)"](wbtc.target);
 
         const usd1 = await oracle.toUSD(sdai.target, ethers.parseUnits("1000", 18));
         const usd2 = await oracle.toUSD(usdc.target, ethers.parseUnits("1000", 6));
@@ -787,7 +873,7 @@ describe("UBKOracle", function () {
         it("round-trips 6-decimal USDC", async () => {
           const feedUSDC = await MockAggregator.deploy(1e8, 8);
           await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
-          await oracle.fetchAndUpdatePrice(usdc.target);
+          await oracle["fetchAndUpdatePrice(address)"](usdc.target);
 
           const amount = ethers.parseUnits("123.456789", 6);
           const usd = await oracle.toUSD(usdc.target, amount);
@@ -799,7 +885,7 @@ describe("UBKOracle", function () {
         it("round-trips 8-decimal WBTC", async () => {
           const feedWBTC = await MockAggregator.deploy(25000e8, 8);
           await oracle.setChainlinkFeed(wbtc.target, feedWBTC.target);
-          await oracle.fetchAndUpdatePrice(wbtc.target);
+          await oracle["fetchAndUpdatePrice(address)"](wbtc.target);
 
           const amount = ethers.parseUnits("0.5", 8);
           const usd = await oracle.toUSD(wbtc.target, amount);
@@ -814,8 +900,8 @@ describe("UBKOracle", function () {
           await oracle.setChainlinkFeed(dai.target, feedDAI.target);
           await oracle.setERC4626Vault(sdai.target, dai.target);
 
-          await oracle.fetchAndUpdatePrice(dai.target);
-          await oracle.fetchAndUpdatePrice(sdai.target);
+          await oracle["fetchAndUpdatePrice(address)"](dai.target);
+          await oracle["fetchAndUpdatePrice(address)"](sdai.target);
 
           const amount = ethers.parseUnits("321.123456789012345678", 18);
           const usd = await oracle.toUSD(sdai.target, amount);
@@ -828,8 +914,8 @@ describe("UBKOracle", function () {
           await oracle.setChainlinkFeed(dai.target, feedDAI.target); // set Chainlink feed for DAI
           await oracle.setERC4626Vault(sdai.target, dai.target); // set ERC4626 mapping feed for sDAI to DAI
 
-          await oracle.fetchAndUpdatePrice(dai.target); // init price cache
-          await oracle.fetchAndUpdatePrice(sdai.target); // init price cache
+          await oracle["fetchAndUpdatePrice(address)"](dai.target); // init price cache
+          await oracle["fetchAndUpdatePrice(address)"](sdai.target); // init price cache
 
           const amount = ethers.parseUnits("1000", 18);
           const usd = await oracle.toUSD(sdai.target, amount); // call getPrice() under the hood to fetch cached value & convert.
@@ -851,14 +937,14 @@ describe("UBKOracle", function () {
       });
 
       it("returns 0 immediately after fetchAndUpdatePrice()", async () => {
-        await oracle.fetchAndUpdatePrice(usdc.target);
+        await oracle["fetchAndUpdatePrice(address)"](usdc.target);
 
         const age = await oracle.getPriceAge(usdc.target);
         expect(age).to.equal(0n);
       });
 
       it("returns correct age after time passes", async () => {
-        await oracle.fetchAndUpdatePrice(usdc.target);
+        await oracle["fetchAndUpdatePrice(address)"](usdc.target);
 
         // simulate 500 seconds passing
         await ethers.provider.send("evm_increaseTime", [500]);
@@ -875,7 +961,7 @@ describe("UBKOracle", function () {
         await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
 
         // stalePeriod defaults to 1 day in your setup
-        await oracle.fetchAndUpdatePrice(usdc.target);
+        await oracle["fetchAndUpdatePrice(address)"](usdc.target);
       });
 
       it("returns true immediately after price update", async () => {
@@ -911,7 +997,6 @@ describe("UBKOracle", function () {
         expect(fresh).to.equal(false);
       });
     });
-
   });
 })
 
