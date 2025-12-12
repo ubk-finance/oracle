@@ -20,6 +20,7 @@
   "files": [
     "contracts",
     "interfaces",
+    "deployments",
     "README.md",
     "LICENSE",
     "package.json"
