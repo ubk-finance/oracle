@@ -94,7 +94,9 @@ interface IUBKOracle {
      * @dev Keeper entrypoint. May revert if price resolution fails.
      */
     function fetchAndUpdatePrice(address token) external returns (uint256);
-
+    function fetchAndUpdatePrice(
+        address[] calldata tokens
+    ) external returns (uint256[] memory);
     // -----------------------------------------------------------------------
     // ADMIN / GOVERNANCE CONFIGURATION
     // -----------------------------------------------------------------------
