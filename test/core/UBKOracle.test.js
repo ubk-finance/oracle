@@ -776,6 +776,81 @@ describe("UBKOracle", function () {
         ).to.be.revertedWithCustomError(oracle, "NoPriceFeed");
       });
 
+      it("reverts when ERC4626 recursion depth exceeds limit", async () => {
+        // Base underlying with real price
+        await oracle.setChainlinkFeed(dai.target, feedDAI.target);
+        await oracle["fetchAndUpdatePrice(address)"](dai.target);
+
+        const rate = ethers.parseUnits("1", 18);
+
+        // Build deep ERC4626 chain: v0 -> v1 -> v2 -> v3 -> v4 -> v5 -> DAI
+        const v5 = await Mock4626.deploy(
+          "Vault5",
+          "V5",
+          18,
+          ethers.parseUnits("1000000", 18),
+          dai.target
+        );
+        await v5.setExchangeRate(rate);
+
+        const v4 = await Mock4626.deploy(
+          "Vault4",
+          "V4",
+          18,
+          ethers.parseUnits("1000000", 18),
+          v5.target
+        );
+        await v4.setExchangeRate(rate);
+
+        const v3 = await Mock4626.deploy(
+          "Vault3",
+          "V3",
+          18,
+          ethers.parseUnits("1000000", 18),
+          v4.target
+        );
+        await v3.setExchangeRate(rate);
+
+        const v2 = await Mock4626.deploy(
+          "Vault2",
+          "V2",
+          18,
+          ethers.parseUnits("1000000", 18),
+          v3.target
+        );
+        await v2.setExchangeRate(rate);
+
+        const v1 = await Mock4626.deploy(
+          "Vault1",
+          "V1",
+          18,
+          ethers.parseUnits("1000000", 18),
+          v2.target
+        );
+        await v1.setExchangeRate(rate);
+
+        const v0 = await Mock4626.deploy(
+          "Vault0",
+          "V0",
+          18,
+          ethers.parseUnits("1000000", 18),
+          v1.target
+        );
+        await v0.setExchangeRate(rate);
+
+        // Register all vaults in the oracle
+        await oracle.setERC4626Vault(v5.target, dai.target);
+        await oracle.setERC4626Vault(v4.target, v5.target);
+        await oracle.setERC4626Vault(v3.target, v4.target);
+        await oracle.setERC4626Vault(v2.target, v3.target);
+        await oracle.setERC4626Vault(v1.target, v2.target);
+        await oracle.setERC4626Vault(v0.target, v1.target);
+
+        // This should exceed ORACLE_MAX_RECURSION_DEPTH
+        await expect(
+          oracle["fetchAndUpdatePrice(address)"](v0.target)
+        ).to.be.revertedWithCustomError(oracle, "RecursiveResolution");
+      });
     });
 
     describe("Batch fetchAndUpdatePrice(address[])", function () {
@@ -864,6 +939,8 @@ describe("UBKOracle", function () {
       });
     });
 
+
+
     describe("getPrice()", function () {
       beforeEach(async () => {
         await setup();
@@ -900,7 +977,6 @@ describe("UBKOracle", function () {
           (daiPrice * ethers.parseUnits("1.02", 18)) / ethers.parseUnits("1", 18)
         );
       });
-
     });
 
     describe("toUSD() + fromUSD()", function () {
