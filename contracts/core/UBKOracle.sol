@@ -88,10 +88,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
      * @notice Deploys the Oracle contract.
      * @param _owner The address to assign as the owner (governance or deployer).
      */
-    constructor(address _owner) Ownable(_owner) {
-        if (_owner == address(0))
-            revert ZeroAddress("UBKOracle::constructor", "owner");
-    }
+    constructor(address _owner) Ownable(_owner) {}
 
     /// @notice Ensures oracle is not paused.
     modifier whenNotPaused() {
