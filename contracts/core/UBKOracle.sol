@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+import "@ubk-commons/contracts/abstract/UBKDecimalsBounded.sol";
 
 import "../../interfaces/IUBKOracle.sol";
 import "../errors/UBKOracleErrors.sol";
@@ -39,7 +40,7 @@ import "../constants/UBKOracleConstants.sol";
  *  - UI / Subgraphs can use `isPriceFresh()` and `getPriceAge()` for safety checks.
  *
  */
-contract UBKOracle is IUBKOracle, Ownable {
+contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     // -----------------------------------------------------------------------
     // Storage
     // -----------------------------------------------------------------------
@@ -240,8 +241,10 @@ contract UBKOracle is IUBKOracle, Ownable {
      * @dev Ensures decimals ≤ 18 and feed returns a nonzero updatedAt value.
      */
     function setChainlinkFeed(address token, address feed) external onlyOwner {
-        if (token == address(0) || feed == address(0))
-            revert ZeroAddress("UBKOracle::setChainlinkFeed", "input");
+        if (token == address(0))
+            revert ZeroAddress("UBKOracle::setChainlinkFeed", "token");
+        if (feed == address(0))
+            revert ZeroAddress("UBKOracle::setChainlinkFeed", "feed");
         if (feed.code.length == 0) revert InvalidFeedContract(feed);
 
         AggregatorV3Interface agg = AggregatorV3Interface(feed);
