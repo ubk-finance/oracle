@@ -622,7 +622,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
 
     /**
      * @notice Validates input parameters before setting an ERc 4626 vault.
-     * @dev Ensures decimals for both assets are equal, and bounded by global invariants.
+     * @dev Ensures decimals for vault and underlying assets are equal, and bounded by global invariants.
      * @param vault ERC-4626 asset.
      * @param underlying ERC-20 asset.
      */

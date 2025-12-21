@@ -145,6 +145,25 @@ describe("UBKOracle", function () {
         const finalPrice = await oracle.getPrice(usdc.target);
         expect(finalPrice).to.equal(cached);
       });
+
+      it("reverts if feed has no code (EOA)", async () => {
+        await expect(
+          oracle.setChainlinkFeed(usdc.target, deployer.address)
+        ).to.be.revertedWithCustomError(oracle, "InvalidFeedContract");
+      });
+
+      it("reverts if token decimals < MIN_DECIMALS", async () => {
+        const BadToken = await MockERC20.deploy(
+          "Bad",
+          "BAD",
+          3, // below 6
+          1n
+        );
+
+        await expect(
+          oracle.setChainlinkFeed(BadToken.target, feed.target)
+        ).to.be.reverted;
+      });
     });
 
     // --- setERC4626Vault ---
@@ -238,6 +257,20 @@ describe("UBKOracle", function () {
         ).to.be.revertedWithCustomError(oracle, "SuspiciousVaultRate");
       });
 
+      it("reverts if vault and underlying decimals mismatch", async () => {
+        const dai6 = await MockERC20.deploy("DAI6", "DAI6", 6, 1n);
+        const badVault = await Mock4626.deploy(
+          "BadVault",
+          "BV",
+          18,
+          1n,
+          dai6.target
+        );
+
+        await expect(
+          oracle.setERC4626Vault(badVault.target, dai6.target)
+        ).to.be.revertedWithCustomError(oracle, "ERC4626DecimalsMismatch");
+      });
 
     });
 
@@ -339,6 +372,29 @@ describe("UBKOracle", function () {
         });
       });
 
+      it("allows manual price outside ±10% if lastValidPrice is stale", async () => {
+        await oracle.setChainlinkFeed(usdc.target, feed.target);
+        await oracle["fetchAndUpdatePrice(address)"](usdc.target);
+
+        await oracle.setStalePeriod(usdc.target, 3600);
+
+        // make lastValidPrice stale
+        await ethers.provider.send("evm_increaseTime", [3600 + 1]);
+        await ethers.provider.send("evm_mine");
+
+        // +50% deviation should be allowed
+        await expect(
+          oracle.setManualPrice(usdc.target, ethers.parseUnits("1.5", 18))
+        ).to.not.be.reverted;
+      });
+
+      it("reverts when oracle is paused", async () => {
+        await oracle.setOracleMode(1); // PAUSED
+
+        await expect(
+          oracle.setManualPrice(usdc.target, ethers.parseUnits("1", 18))
+        ).to.be.revertedWithCustomError(oracle, "OraclePaused");
+      });
     });
 
     describe("setStalePeriod()", function () {
@@ -713,6 +769,13 @@ describe("UBKOracle", function () {
           oracle["fetchAndUpdatePrice(address)"](usdc.target)
         ).to.be.revertedWithCustomError(oracle, "StaleFallback");
       });
+
+      it("reverts with NoPriceFeed when token has no feed and is not ERC4626", async () => {
+        await expect(
+          oracle["fetchAndUpdatePrice(address)"](usdc.target)
+        ).to.be.revertedWithCustomError(oracle, "NoPriceFeed");
+      });
+
     });
 
     describe("Batch fetchAndUpdatePrice(address[])", function () {
@@ -818,6 +881,26 @@ describe("UBKOracle", function () {
         await expect(oracle.getPrice(usdc.target))
           .to.be.revertedWithCustomError(oracle, "StalePrice");
       });
+
+      it("uses fallback underlying price when ERC4626 underlying feed fails", async () => {
+        await oracle.setChainlinkFeed(dai.target, feedDAI.target);
+        await oracle.setERC4626Vault(sdai.target, dai.target);
+
+        // prime DAI
+        await oracle["fetchAndUpdatePrice(address)"](dai.target);
+        const daiPrice = await oracle.getPrice(dai.target);
+
+        // break Chainlink
+        await feedDAI.updateAnswer(0);
+
+        await oracle["fetchAndUpdatePrice(address)"](sdai.target);
+        const price = await oracle.getPrice(sdai.target);
+
+        expect(price).to.equal(
+          (daiPrice * ethers.parseUnits("1.02", 18)) / ethers.parseUnits("1", 18)
+        );
+      });
+
     });
 
     describe("toUSD() + fromUSD()", function () {
