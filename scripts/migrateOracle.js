@@ -10,8 +10,8 @@ const { ethers } = hre;
 async function main() {
     const [signer] = await ethers.getSigners();
 
-    const from = "0x37814FAA5bd659888380CBa070F098Cc0999A8cA";
-    const to = "0x5d4747d514B529005F4014f26068E1f4Ec47E06B";
+    const from = "0x5d4747d514B529005F4014f26068E1f4Ec47E06B";
+    const to = "0x04B21e27e24Ab71472690C9a09BC7A826d658668";
 
     if (!from || !to) {
         console.error("Usage: node migrateOracle.js <fromOracle> <toOracle>");
