@@ -145,6 +145,25 @@ describe("UBKOracle", function () {
         const finalPrice = await oracle.getPrice(usdc.target);
         expect(finalPrice).to.equal(cached);
       });
+
+      it("reverts if feed has no code (EOA)", async () => {
+        await expect(
+          oracle.setChainlinkFeed(usdc.target, deployer.address)
+        ).to.be.revertedWithCustomError(oracle, "InvalidFeedContract");
+      });
+
+      it("reverts if token decimals < MIN_DECIMALS", async () => {
+        const BadToken = await MockERC20.deploy(
+          "Bad",
+          "BAD",
+          3, // below 6
+          1n
+        );
+
+        await expect(
+          oracle.setChainlinkFeed(BadToken.target, feed.target)
+        ).to.be.reverted;
+      });
     });
 
     // --- setERC4626Vault ---
@@ -238,6 +257,20 @@ describe("UBKOracle", function () {
         ).to.be.revertedWithCustomError(oracle, "SuspiciousVaultRate");
       });
 
+      it("reverts if vault and underlying decimals mismatch", async () => {
+        const dai6 = await MockERC20.deploy("DAI6", "DAI6", 6, 1n);
+        const badVault = await Mock4626.deploy(
+          "BadVault",
+          "BV",
+          18,
+          1n,
+          dai6.target
+        );
+
+        await expect(
+          oracle.setERC4626Vault(badVault.target, dai6.target)
+        ).to.be.revertedWithCustomError(oracle, "ERC4626DecimalsMismatch");
+      });
 
     });
 
@@ -339,6 +372,29 @@ describe("UBKOracle", function () {
         });
       });
 
+      it("allows manual price outside ±10% if lastValidPrice is stale", async () => {
+        await oracle.setChainlinkFeed(usdc.target, feed.target);
+        await oracle["fetchAndUpdatePrice(address)"](usdc.target);
+
+        await oracle.setStalePeriod(usdc.target, 3600);
+
+        // make lastValidPrice stale
+        await ethers.provider.send("evm_increaseTime", [3600 + 1]);
+        await ethers.provider.send("evm_mine");
+
+        // +50% deviation should be allowed
+        await expect(
+          oracle.setManualPrice(usdc.target, ethers.parseUnits("1.5", 18))
+        ).to.not.be.reverted;
+      });
+
+      it("reverts when oracle is paused", async () => {
+        await oracle.setOracleMode(1); // PAUSED
+
+        await expect(
+          oracle.setManualPrice(usdc.target, ethers.parseUnits("1", 18))
+        ).to.be.revertedWithCustomError(oracle, "OraclePaused");
+      });
     });
 
     describe("setStalePeriod()", function () {
@@ -713,6 +769,88 @@ describe("UBKOracle", function () {
           oracle["fetchAndUpdatePrice(address)"](usdc.target)
         ).to.be.revertedWithCustomError(oracle, "StaleFallback");
       });
+
+      it("reverts with NoPriceFeed when token has no feed and is not ERC4626", async () => {
+        await expect(
+          oracle["fetchAndUpdatePrice(address)"](usdc.target)
+        ).to.be.revertedWithCustomError(oracle, "NoPriceFeed");
+      });
+
+      it("reverts when ERC4626 recursion depth exceeds limit", async () => {
+        // Base underlying with real price
+        await oracle.setChainlinkFeed(dai.target, feedDAI.target);
+        await oracle["fetchAndUpdatePrice(address)"](dai.target);
+
+        const rate = ethers.parseUnits("1", 18);
+
+        // Build deep ERC4626 chain: v0 -> v1 -> v2 -> v3 -> v4 -> v5 -> DAI
+        const v5 = await Mock4626.deploy(
+          "Vault5",
+          "V5",
+          18,
+          ethers.parseUnits("1000000", 18),
+          dai.target
+        );
+        await v5.setExchangeRate(rate);
+
+        const v4 = await Mock4626.deploy(
+          "Vault4",
+          "V4",
+          18,
+          ethers.parseUnits("1000000", 18),
+          v5.target
+        );
+        await v4.setExchangeRate(rate);
+
+        const v3 = await Mock4626.deploy(
+          "Vault3",
+          "V3",
+          18,
+          ethers.parseUnits("1000000", 18),
+          v4.target
+        );
+        await v3.setExchangeRate(rate);
+
+        const v2 = await Mock4626.deploy(
+          "Vault2",
+          "V2",
+          18,
+          ethers.parseUnits("1000000", 18),
+          v3.target
+        );
+        await v2.setExchangeRate(rate);
+
+        const v1 = await Mock4626.deploy(
+          "Vault1",
+          "V1",
+          18,
+          ethers.parseUnits("1000000", 18),
+          v2.target
+        );
+        await v1.setExchangeRate(rate);
+
+        const v0 = await Mock4626.deploy(
+          "Vault0",
+          "V0",
+          18,
+          ethers.parseUnits("1000000", 18),
+          v1.target
+        );
+        await v0.setExchangeRate(rate);
+
+        // Register all vaults in the oracle
+        await oracle.setERC4626Vault(v5.target, dai.target);
+        await oracle.setERC4626Vault(v4.target, v5.target);
+        await oracle.setERC4626Vault(v3.target, v4.target);
+        await oracle.setERC4626Vault(v2.target, v3.target);
+        await oracle.setERC4626Vault(v1.target, v2.target);
+        await oracle.setERC4626Vault(v0.target, v1.target);
+
+        // This should exceed ORACLE_MAX_RECURSION_DEPTH
+        await expect(
+          oracle["fetchAndUpdatePrice(address)"](v0.target)
+        ).to.be.revertedWithCustomError(oracle, "RecursiveResolution");
+      });
     });
 
     describe("Batch fetchAndUpdatePrice(address[])", function () {
@@ -801,6 +939,8 @@ describe("UBKOracle", function () {
       });
     });
 
+
+
     describe("getPrice()", function () {
       beforeEach(async () => {
         await setup();
@@ -817,6 +957,25 @@ describe("UBKOracle", function () {
 
         await expect(oracle.getPrice(usdc.target))
           .to.be.revertedWithCustomError(oracle, "StalePrice");
+      });
+
+      it("uses fallback underlying price when ERC4626 underlying feed fails", async () => {
+        await oracle.setChainlinkFeed(dai.target, feedDAI.target);
+        await oracle.setERC4626Vault(sdai.target, dai.target);
+
+        // prime DAI
+        await oracle["fetchAndUpdatePrice(address)"](dai.target);
+        const daiPrice = await oracle.getPrice(dai.target);
+
+        // break Chainlink
+        await feedDAI.updateAnswer(0);
+
+        await oracle["fetchAndUpdatePrice(address)"](sdai.target);
+        const price = await oracle.getPrice(sdai.target);
+
+        expect(price).to.equal(
+          (daiPrice * ethers.parseUnits("1.02", 18)) / ethers.parseUnits("1", 18)
+        );
       });
     });
 

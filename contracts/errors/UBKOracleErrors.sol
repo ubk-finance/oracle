@@ -19,3 +19,4 @@ error NoFallbackPrice(address token);
 error SuspiciousVaultRate(address vault, uint256 rate);
 error RecursiveResolution(address token);
 error OraclePaused(address oracle, uint256 timestamp);
+error ERC4626DecimalsMismatch(string functionName, address vault, address underlying);
