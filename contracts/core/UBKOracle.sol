@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+import "@ubk-labs/ubk-commons/contracts/abstract/UBKDecimalsBounded.sol";
 
 import "../../interfaces/IUBKOracle.sol";
 import "../errors/UBKOracleErrors.sol";
@@ -39,7 +40,7 @@ import "../constants/UBKOracleConstants.sol";
  *  - UI / Subgraphs can use `isPriceFresh()` and `getPriceAge()` for safety checks.
  *
  */
-contract UBKOracle is IUBKOracle, Ownable {
+contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     // -----------------------------------------------------------------------
     // Storage
     // -----------------------------------------------------------------------
@@ -87,10 +88,7 @@ contract UBKOracle is IUBKOracle, Ownable {
      * @notice Deploys the Oracle contract.
      * @param _owner The address to assign as the owner (governance or deployer).
      */
-    constructor(address _owner) Ownable(_owner) {
-        if (_owner == address(0))
-            revert ZeroAddress("UBKOracle::constructor", "owner");
-    }
+    constructor(address _owner) Ownable(_owner) {}
 
     /// @notice Ensures oracle is not paused.
     modifier whenNotPaused() {
@@ -240,9 +238,7 @@ contract UBKOracle is IUBKOracle, Ownable {
      * @dev Ensures decimals ≤ 18 and feed returns a nonzero updatedAt value.
      */
     function setChainlinkFeed(address token, address feed) external onlyOwner {
-        if (token == address(0) || feed == address(0))
-            revert ZeroAddress("UBKOracle::setChainlinkFeed", "input");
-        if (feed.code.length == 0) revert InvalidFeedContract(feed);
+        _validateChainlinkFeed(token, feed);
 
         AggregatorV3Interface agg = AggregatorV3Interface(feed);
         uint8 decimals = agg.decimals();
@@ -276,11 +272,7 @@ contract UBKOracle is IUBKOracle, Ownable {
         address vault,
         address underlying
     ) external onlyOwner {
-        if (vault == address(0) || underlying == address(0))
-            revert ZeroAddress("UBKOracle::setERC4626Vault", "input");
-        try IERC4626(vault).asset() returns (address) {} catch {
-            revert InvalidERC4626Vault(vault);
-        }
+        _validateERC4626Vault(vault, underlying);
         erc4626Underlying[vault] = underlying;
         _addSupportedToken(vault);
         emit ERC4626Registered(vault, underlying);
@@ -610,6 +602,54 @@ contract UBKOracle is IUBKOracle, Ownable {
             supportedTokens.push(token);
             isSupported[token] = true;
             emit TokenSupportAdded(token);
+        }
+    }
+
+    /**
+     * @notice Validates assets and their associated Chainlink feeds before mutating system state.
+     * @param token Asset token address.
+     * @param feed Chainlink AggregatorV3 feed address.
+     * @dev Ensures decimals ≤ 18 and feed returns a nonzero updatedAt value.
+     */
+    function _validateChainlinkFeed(address token, address feed) internal view {
+        if (token == address(0))
+            revert ZeroAddress("UBKOracle::setChainlinkFeed", "token");
+        if (feed == address(0))
+            revert ZeroAddress("UBKOracle::setChainlinkFeed", "feed");
+        if (feed.code.length == 0) revert InvalidFeedContract(feed);
+        _validateTokenDecimals(token);
+    }
+
+    /**
+     * @notice Validates input parameters before setting an ERc 4626 vault.
+     * @dev Ensures decimals for vault and underlying assets are equal, and bounded by global invariants.
+     * @param vault ERC-4626 asset.
+     * @param underlying ERC-20 asset.
+     */
+    function _validateERC4626Vault(
+        address vault,
+        address underlying
+    ) internal view {
+        if (vault == address(0))
+            revert ZeroAddress("UBKOracle::_validateERC4626Vault", "vault");
+        if (underlying == address(0)) {
+            revert ZeroAddress(
+                "UBKOracle::_validateERC4626Vault",
+                "underlying"
+            );
+        }
+        try IERC4626(vault).asset() returns (address) {} catch {
+            revert InvalidERC4626Vault(vault);
+        }
+        uint8 vaultDecimals = _validateTokenDecimals(vault); // Must be between [6,18]
+        uint8 underlyingDecimals = _validateTokenDecimals(underlying); // Must be between [6,18]
+
+        if (vaultDecimals != underlyingDecimals) {
+            revert ERC4626DecimalsMismatch(
+                "UBKOracle::_validateERC4626Vault",
+                vault,
+                underlying
+            );
         }
     }
 }
