@@ -1020,10 +1020,12 @@ describe("UBKOracle", function () {
       });
 
       it("returns 0 when amount = 0 in toUSD()", async () => {
+        await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
         expect(await oracle.toUSD(usdc.target, 0)).to.equal(0n);
       });
 
       it("returns 0 when usdAmount = 0 in fromUSD()", async () => {
+        await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
         expect(await oracle.fromUSD(usdc.target, 0)).to.equal(0n);
       });
 
