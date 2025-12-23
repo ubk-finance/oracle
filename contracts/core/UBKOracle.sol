@@ -26,6 +26,12 @@ import "../constants/UBKOracleConstants.sol";
  *  2. ERC4626 vault-derived (convertToAssets * underlying price)
  *  3️. Chainlink feed (normalized to 1e18)
  *
+ *  === DECIMAL INVARIANTS ===
+ *  - Only explicitly registered tokens may be priced or converted.
+ *  - Token decimals are validated once at registration and MUST lie within [6, 18].
+ *  - Validated decimals are cached immutably and never queried from token contracts at runtime.
+ *  - All internal price and value computations assume and rely on these enforced bounds.
+ *  - ERC-4626 vaults are only supported when vault.decimals() == underlying.decimals(), preventing cross-decimal normalization errors in vault pricing.
  *  === SAFETY FEATURES ===
  *  - Recursion guard (nested ERC4626 depth ≤ 5)
  *  - Chainlink stale-period enforcement
@@ -40,6 +46,7 @@ import "../constants/UBKOracleConstants.sol";
  *  - UI / Subgraphs can use `isPriceFresh()` and `getPriceAge()` for safety checks.
  *
  */
+
 contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     // -----------------------------------------------------------------------
     // Storage
@@ -289,6 +296,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
      *  Public wrapper for internal _getPrice() method.
      */
     function getPrice(address token) external view returns (uint256 price) {
+        if (!isSupported[token]) revert TokenNotSupported(token);
         return _getPrice(token);
     }
 
@@ -477,8 +485,8 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
         address vault,
         address underlying
     ) internal checkRecursion returns (uint256 price) {
-        uint8 shareDecimals = IERC20Metadata(vault).decimals();
-        uint8 underlyingDecimals = IERC20Metadata(underlying).decimals();
+        uint8 shareDecimals = tokenDecimals[vault];
+        uint8 underlyingDecimals = tokenDecimals[underlying];
 
         uint256 oneShare = 10 ** shareDecimals;
         uint256 assetsPerShare = IERC4626(vault).convertToAssets(oneShare);
@@ -569,6 +577,8 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
      * @dev May trigger state updates if underlying vaults are resolved.
      */
     function _resolvePrice(address token) internal returns (uint256 price) {
+        if (!isSupported[token]) revert TokenNotSupported(token);
+
         if (isManual[token]) return manualPrices[token];
 
         address underlying = erc4626Underlying[token];
