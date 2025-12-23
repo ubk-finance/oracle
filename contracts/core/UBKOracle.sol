@@ -80,6 +80,9 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     /// @notice Mapping to track supported tokens.
     mapping(address => bool) public isSupported;
 
+    /// @notice Cache that tracks decimals for supported tokens.
+    mapping(address => uint8) internal tokenDecimals;
+
     // -----------------------------------------------------------------------
     // Constructor & Modifiers
     // -----------------------------------------------------------------------
@@ -382,8 +385,9 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
         address token,
         uint256 amount
     ) external view returns (uint256 usdValue) {
+        if (!isSupported[token]) revert TokenNotSupported(token);
         if (amount == 0) return 0;
-        uint8 decimals = IERC20Metadata(token).decimals();
+        uint8 decimals = tokenDecimals[token];
         uint256 normalized = (amount * UBKOracleConstants.WAD) /
             (10 ** decimals);
         uint256 price = _getPrice(token); // 18 decimals
@@ -400,8 +404,9 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
         address token,
         uint256 usdAmount
     ) external view returns (uint256 tokenAmount) {
+        if (!isSupported[token]) revert TokenNotSupported(token);
         if (usdAmount == 0) return 0;
-        uint8 decimals = IERC20Metadata(token).decimals();
+        uint8 decimals = tokenDecimals[token];
         uint256 price = _getPrice(token); // 18 decimals
         uint256 normalized = (usdAmount * UBKOracleConstants.WAD) / price;
         tokenAmount = (normalized * (10 ** decimals)) / UBKOracleConstants.WAD;
@@ -601,6 +606,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
         if (!isSupported[token]) {
             supportedTokens.push(token);
             isSupported[token] = true;
+            tokenDecimals[token] = _validateTokenDecimals(token);
             emit TokenSupportAdded(token);
         }
     }
