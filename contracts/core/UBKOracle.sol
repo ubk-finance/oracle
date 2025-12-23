@@ -296,7 +296,6 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
      *  Public wrapper for internal _getPrice() method.
      */
     function getPrice(address token) external view returns (uint256 price) {
-        if (!isSupported[token]) revert TokenNotSupported(token);
         return _getPrice(token);
     }
 
