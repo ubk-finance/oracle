@@ -116,6 +116,12 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
         _recursionDepth--;
     }
 
+    /// @notice Does not allow execution of the decorated function if token is unsupported.
+    modifier supportedToken(address token) {
+        if (!isSupported[token]) revert TokenNotSupported(token);
+        _;
+    }
+
     // -----------------------------------------------------------------------
     // Admin / Configuration
     // -----------------------------------------------------------------------
@@ -200,6 +206,10 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     ) external onlyOwner whenNotPaused {
         if (token == address(0))
             revert ZeroAddress("UBKOracle::setManualPrice", "token");
+        if (!isSupported[token]) {
+            _addSupportedToken(token);
+        }
+
         if (
             price < UBKOracleConstants.ORACLE_MIN_ABSOLUTE_PRICE_WAD ||
             price > UBKOracleConstants.ORACLE_MAX_ABSOLUTE_PRICE_WAD
@@ -402,8 +412,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     function toUSD(
         address token,
         uint256 amount
-    ) external view returns (uint256 usdValue) {
-        if (!isSupported[token]) revert TokenNotSupported(token);
+    ) external view supportedToken(token) returns (uint256 usdValue) {
         if (amount == 0) return 0;
         uint8 decimals = tokenDecimals[token];
         uint256 normalized = (amount * UBKOracleConstants.WAD) /
@@ -432,8 +441,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     function fromUSD(
         address token,
         uint256 usdAmount
-    ) external view returns (uint256 tokenAmount) {
-        if (!isSupported[token]) revert TokenNotSupported(token);
+    ) external view supportedToken(token) returns (uint256 tokenAmount) {
         if (usdAmount == 0) return 0;
         uint8 decimals = tokenDecimals[token];
         uint256 price = _getPrice(token); // 18 decimals
@@ -480,7 +488,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
      * @dev Derives price via convertToAssets() * underlying price.
      *      Ensures vault rate lies within acceptable bounds.
      */
-    function _getVaultPrice(
+    function _resolveVaultPrice(
         address vault,
         address underlying
     ) internal checkRecursion returns (uint256 price) {
@@ -576,12 +584,10 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
      * @dev May trigger state updates if underlying vaults are resolved.
      */
     function _resolvePrice(address token) internal returns (uint256 price) {
-        if (!isSupported[token]) revert TokenNotSupported(token);
-
         if (isManual[token]) return manualPrices[token];
 
         address underlying = erc4626Underlying[token];
-        if (underlying != address(0)) return _getVaultPrice(token, underlying);
+        if (underlying != address(0)) return _resolveVaultPrice(token, underlying);
 
         address feed = chainlinkFeeds[token];
         if (feed == address(0)) revert NoPriceFeed(token);
@@ -611,7 +617,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
      */
     function _fetchAndUpdatePrice(
         address token
-    ) internal returns (uint256 price) {
+    ) internal supportedToken(token) returns (uint256 price) {
         price = _resolvePrice(token);
         if (
             price < UBKOracleConstants.ORACLE_MIN_ABSOLUTE_PRICE_WAD ||

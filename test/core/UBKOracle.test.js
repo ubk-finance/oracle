@@ -770,10 +770,11 @@ describe("UBKOracle", function () {
         ).to.be.revertedWithCustomError(oracle, "StaleFallback");
       });
 
-      it("reverts with NoPriceFeed when token has no feed and is not ERC4626", async () => {
+      it("reverts with TokenNotSupported when token has no feed and is not ERC4626", async () => {
+
         await expect(
           oracle["fetchAndUpdatePrice(address)"](usdc.target)
-        ).to.be.revertedWithCustomError(oracle, "NoPriceFeed");
+        ).to.be.revertedWithCustomError(oracle, "TokenNotSupported");
       });
 
       it("reverts when ERC4626 recursion depth exceeds limit", async () => {
