@@ -376,11 +376,22 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     // -----------------------------------------------------------------------
 
     /**
-     * @notice Converts a token amount into USD (18 decimals)
-     * @param token Token address
-     * @param amount Raw token amount (native decimals)
-     * @return usdValue USD value (18 decimals)
+     * @notice Converts a supported token amount into USD (18 decimals).
+     * @dev
+     *  Requirements:
+     *  - `token` MUST be registered as supported by the oracle.
+     *  - Token decimals are cached at registration and guaranteed to be within [6,18].
+     *  - Reverts if the token is not supported or if the cached price is stale or unavailable.
+     *
+     *  Behavior:
+     *  - Returns 0 if `amount == 0` without reading oracle price.
+     *  - Uses cached decimals and cached price for deterministic gas usage.
+     *
+     * @param token Supported token address.
+     * @param amount Raw token amount in native decimals.
+     * @return usdValue USD value with 18 decimals of precision.
      */
+
     function toUSD(
         address token,
         uint256 amount
@@ -395,11 +406,22 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     }
 
     /**
-     * @notice Converts a USD amount (18 decimals) into token units
-     * @param token Token address
-     * @param usdAmount USD value (18 decimals)
-     * @return tokenAmount Equivalent in token units
+     * @notice Converts a USD amount (18 decimals) into units of a supported token.
+     * @dev
+     *  Requirements:
+     *  - `token` MUST be registered as supported by the oracle.
+     *  - Token decimals are cached at registration and guaranteed to be within [6,18].
+     *  - Reverts if the token is not supported or if the cached price is stale or unavailable.
+     *
+     *  Behavior:
+     *  - Returns 0 if `usdAmount == 0` without reading oracle price.
+     *  - Uses cached decimals and cached price for deterministic gas usage.
+     *
+     * @param token Supported token address.
+     * @param usdAmount USD value with 18 decimals of precision.
+     * @return tokenAmount Equivalent amount in token native decimals.
      */
+
     function fromUSD(
         address token,
         uint256 usdAmount
