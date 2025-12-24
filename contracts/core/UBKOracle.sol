@@ -452,12 +452,35 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     // -----------------------------------------------------------------------
 
     /**
-     * @notice Returns the cached price for a token (1e18 precision).
-     * @dev Reverts if no valid price or if staleness > stalePeriod.
+     * @notice Returns the cached USD price for a token.
+     *
+     * @dev
+     *  This function is the canonical read path for all pricing operations
+     *  (including `toUSD` and `fromUSD`). It intentionally performs **no explicit
+     *  supported-token check** in order to minimize gas usage on hot, view-only paths.
+     *
+     *  Reverts in the following cases:
+     *
+     *   1. `NoFallbackPrice(token)`
+     *      - The token has **never had a successfully resolved and cached price**, OR
+     *      - The token is **unsupported** and therefore has no initialized pricing state.
+     *
+     *   2. `StalePrice(token, lastUpdated, now)`
+     *      - A cached price exists, but its age exceeds `stalePeriod[token]`.
+     *
+     *  Supported tokens are guaranteed to have:
+     *   - non-zero addresses,
+     *   - validated and cached decimals within [6, 18],
+     *   - pricing state initialized only via explicit configuration paths
+     *     (e.g. Chainlink feeds, ERC4626 vaults, or manual pricing).
+     *
+     *  As a result, callers of `toUSD` and `fromUSD` can safely rely on this function
+     *  for correctness while avoiding redundant SLOADs or branching.
+     *
      * @param token Asset token address.
-     * @return price Cached price in 1e18 precision.
+     * @return price Cached token price in 1e18 precision.
      */
-    function _getPrice(address token) internal view returns (uint256) {
+    function _getPrice(address token) internal view returns (uint256 price) {
         LastValidPrice memory lv = lastValidPrice[token];
         if (lv.price == 0) revert NoFallbackPrice(token);
         if (!_isPriceFresh(token))
