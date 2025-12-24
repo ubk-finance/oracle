@@ -88,7 +88,10 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     mapping(address => bool) public isSupported;
 
     /// @notice Cache that tracks decimals for supported tokens.
-    mapping(address => uint8) internal tokenDecimals;
+    mapping(address => uint8) internal tokenDecimalsCache;
+
+    /// @notice Cache that tracks decimals for registered Chainlink aggregators.
+    mapping(address => uint8) internal aggDecimalsCache;
 
     // -----------------------------------------------------------------------
     // Constructor & Modifiers
@@ -245,18 +248,44 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     }
 
     /**
-     * @notice Registers a Chainlink feed and validates its response.
-     * @param token Asset token address.
-     * @param feed Chainlink AggregatorV3 feed address.
-     * @dev Ensures decimals ≤ 18 and feed returns a nonzero updatedAt value.
+     * @notice Registers a Chainlink price feed as the canonical oracle source for a token.
+     *
+     * @dev
+     *  This function performs all required validation before binding a token to a
+     *  Chainlink AggregatorV3 feed. If this call succeeds, the oracle guarantees that:
+     *
+     *   - `token` is explicitly supported by the oracle and has validated, cached
+     *     ERC-20 decimals within global bounds.
+     *   - `feed` is a deployed AggregatorV3 contract with bounded, immutable decimals
+     *     that are safe to cache and use for price normalization.
+     *   - The feed is live and returning sane data at registration time
+     *     (non-zero answer and timestamp).
+     *
+     *  Upon successful registration:
+     *   - The feed address and its decimals are cached immutably.
+     *   - Manual pricing for `token` is disabled.
+     *   - The token becomes eligible for pricing, conversion, and fallback logic
+     *     across all oracle read paths.
+     *
+     *  This function is administrative and MUST be called only during trusted
+     *  configuration or governance actions. Runtime pricing paths assume that all
+     *  invariants enforced here permanently hold.
+     *
+     * @param token The asset token whose price will be sourced from Chainlink.
+     * @param feed  The Chainlink AggregatorV3 contract providing price data for `token`.
+     *
+     * @custom:invariant If this function returns, the oracle may safely resolve,
+     *                   normalize, and cache prices for `token` without performing
+     *                   any further structural validation on the feed.
      */
     function setChainlinkFeed(address token, address feed) external onlyOwner {
-        _validateChainlinkFeed(token, feed);
+        // 1. Validate inputs and extract trusted feed metadata
+        (AggregatorV3Interface agg, uint8 aggDecimals) = _validateChainlinkFeed(
+            token,
+            feed
+        );
 
-        AggregatorV3Interface agg = AggregatorV3Interface(feed);
-        uint8 decimals = agg.decimals();
-        if (decimals > 18) revert InvalidFeedDecimals(feed, decimals);
-
+        // 2. Ensure the feed is live and returning sane data
         try agg.latestRoundData() returns (
             uint80,
             int256 answer,
@@ -268,9 +297,13 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
         } catch {
             revert InvalidFeedContract(feed);
         }
-        chainlinkFeeds[token] = feed;
-        isManual[token] = false;
-        _addSupportedToken(token);
+        // 3. Commit validated configuration to storage
+        chainlinkFeeds[token] = feed; // Map token to feed
+        aggDecimalsCache[feed] = aggDecimals; // Cache feed decimals
+        isManual[token] = false; // Set manual mode to false
+        _addSupportedToken(token); // Register support for token and cache token decimals.
+
+        // Emit event.
         emit ChainlinkFeedSet(token, feed);
     }
 
@@ -404,7 +437,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
         uint256 amount
     ) external view returns (uint256 usdValue) {
         if (amount == 0) return 0;
-        uint8 decimals = tokenDecimals[token];
+        uint8 decimals = tokenDecimalsCache[token];
         uint256 normalized = (amount * UBKOracleConstants.WAD) /
             (10 ** decimals);
         uint256 price = _getPrice(token); // 18 decimals
@@ -433,7 +466,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
         uint256 usdAmount
     ) external view returns (uint256 tokenAmount) {
         if (usdAmount == 0) return 0;
-        uint8 decimals = tokenDecimals[token];
+        uint8 decimals = tokenDecimalsCache[token];
         uint256 price = _getPrice(token); // 18 decimals
         uint256 normalized = (usdAmount * UBKOracleConstants.WAD) / price;
         tokenAmount = (normalized * (10 ** decimals)) / UBKOracleConstants.WAD;
@@ -503,8 +536,8 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
         address vault,
         address underlying
     ) internal checkRecursion returns (uint256 price) {
-        uint8 shareDecimals = tokenDecimals[vault];
-        uint8 underlyingDecimals = tokenDecimals[underlying];
+        uint8 shareDecimals = tokenDecimalsCache[vault];
+        uint8 underlyingDecimals = tokenDecimalsCache[underlying];
 
         uint256 oneShare = 10 ** shareDecimals;
         uint256 assetsPerShare = IERC4626(vault).convertToAssets(oneShare);
@@ -566,7 +599,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
                 block.timestamp - updatedAt > stalePeriod[token]
             ) return (0, false);
 
-            uint8 feedDecimals = AggregatorV3Interface(feed).decimals();
+            uint8 feedDecimals = aggDecimalsCache[feed];
             uint256 raw = uint256(answer);
 
             uint256 clPrice;
@@ -664,7 +697,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
         if (!isSupported[token]) {
             supportedTokens.push(token);
             isSupported[token] = true;
-            tokenDecimals[token] = _validateTokenDecimals(token);
+            tokenDecimalsCache[token] = _validateTokenDecimals(token);
             _setStalePeriod(
                 token,
                 UBKOracleConstants.ORACLE_DEFAULT_STALE_PERIOD
@@ -674,18 +707,59 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     }
 
     /**
-     * @notice Validates assets and their associated Chainlink feeds before mutating system state.
-     * @param token Asset token address.
-     * @param feed Chainlink AggregatorV3 feed address.
-     * @dev Ensures decimals ≤ 18 and feed returns a nonzero updatedAt value.
+     * @notice Validates and canonicalizes a Chainlink price feed configuration.
+     *
+     * @dev
+     *  This function performs all one-time validation required before a Chainlink
+     *  aggregator may be trusted by the oracle. If this function returns successfully,
+     *  the following invariants are guaranteed for the lifetime of the configuration:
+     *
+     *   - `token` is a non-zero ERC-20 address with validated decimals within
+     *     the oracle’s global bounds.
+     *   - `feed` is a non-zero deployed contract address implementing the
+     *     Chainlink AggregatorV3 interface.
+     *   - The aggregator’s reported decimals lie within the oracle’s accepted
+     *     Chainlink decimal range and are safe to cache immutably.
+     *
+     *  This function does NOT:
+     *   - read or validate live pricing data,
+     *   - mutate oracle state,
+     *   - assume any particular price semantics beyond scale correctness.
+     *
+     *  It exists to separate structural validation from runtime pricing logic,
+     *  enabling deterministic gas usage and invariant-based reasoning throughout
+     *  the oracle’s hot paths.
+     *
+     * @param token The asset token whose price will be sourced from the feed.
+     * @param feed  The Chainlink AggregatorV3 contract providing price data for `token`.
+     *
+     * @return agg         The validated AggregatorV3Interface instance.
+     * @return aggDecimals The validated and bounded number of decimals used by the aggregator.
+     *
+     * @custom:invariant If this function returns, `aggDecimals` may be safely cached
+     *                   and used for all future price normalization without further
+     *                   external calls.
      */
-    function _validateChainlinkFeed(address token, address feed) internal view {
+    function _validateChainlinkFeed(
+        address token,
+        address feed
+    ) internal view returns (AggregatorV3Interface agg, uint8 aggDecimals) {
         if (token == address(0))
-            revert ZeroAddress("UBKOracle::setChainlinkFeed", "token");
+            revert ZeroAddress("UBKOracle::_validateChainlinkFeed", "token");
         if (feed == address(0))
-            revert ZeroAddress("UBKOracle::setChainlinkFeed", "feed");
+            revert ZeroAddress("UBKOracle::_validateChainlinkFeed", "feed");
         if (feed.code.length == 0) revert InvalidFeedContract(feed);
-        _validateTokenDecimals(token);
+
+        _validateTokenDecimals(token); // Ensure ERC-20 tokens are in range.
+
+        agg = AggregatorV3Interface(feed);
+        aggDecimals = agg.decimals();
+
+        if (
+            aggDecimals <
+            UBKOracleConstants.ORACLE_MIN_CHAINLINK_FEED_DECIMALS ||
+            aggDecimals > UBKOracleConstants.ORACLE_MAX_CHAINLINK_FEED_DECIMALS
+        ) revert InvalidFeedDecimals(feed, aggDecimals); // Ensure aggregator decimals are in range.
     }
 
     /**
