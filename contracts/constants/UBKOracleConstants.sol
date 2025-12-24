@@ -39,4 +39,10 @@ library UBKOracleConstants {
     // Oracle Recursion
     // -----------------------------------------------------------------------
     uint256 public constant ORACLE_MAX_RECURSION_DEPTH = 5;
+
+    // -----------------------------------------------------------------------
+    // Chainlink Feed Decimals Bounds
+    // -----------------------------------------------------------------------
+    uint256 public constant ORACLE_MIN_CHAINLINK_FEED_DECIMALS = 6; // Same as UBKDecimalsBounded
+    uint256 public constant ORACLE_MAX_CHAINLINK_FEED_DECIMALS = 18; // Same as UBKDecimalsBounded
 }
