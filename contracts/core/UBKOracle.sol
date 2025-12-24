@@ -88,7 +88,10 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     mapping(address => bool) public isSupported;
 
     /// @notice Cache that tracks decimals for supported tokens.
-    mapping(address => uint8) internal tokenDecimals;
+    mapping(address => uint8) internal tokenDecimalsCache;
+
+    /// @notice Cache that tracks decimals for registered Chainlink feeds.
+    mapping(address => uint8) internal feedDecimalsCache;
 
     // -----------------------------------------------------------------------
     // Constructor & Modifiers
@@ -255,7 +258,8 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
 
         AggregatorV3Interface agg = AggregatorV3Interface(feed);
         uint8 decimals = agg.decimals();
-        if (decimals > 18) revert InvalidFeedDecimals(feed, decimals);
+        if (decimals < 6 || decimals > 18)
+            revert InvalidFeedDecimals(feed, decimals);
 
         try agg.latestRoundData() returns (
             uint80,
@@ -268,9 +272,12 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
         } catch {
             revert InvalidFeedContract(feed);
         }
-        chainlinkFeeds[token] = feed;
-        isManual[token] = false;
-        _addSupportedToken(token);
+        // Mutate stroage with validated state.
+        chainlinkFeeds[token] = feed; // Map token to feed
+        feedDecimalsCache[feed] = decimals; // Cache feed decimals
+        isManual[token] = false; // Set manual mode to false
+        _addSupportedToken(token); // Register support for token and cache token decimals.
+
         emit ChainlinkFeedSet(token, feed);
     }
 
@@ -404,7 +411,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
         uint256 amount
     ) external view returns (uint256 usdValue) {
         if (amount == 0) return 0;
-        uint8 decimals = tokenDecimals[token];
+        uint8 decimals = tokenDecimalsCache[token];
         uint256 normalized = (amount * UBKOracleConstants.WAD) /
             (10 ** decimals);
         uint256 price = _getPrice(token); // 18 decimals
@@ -433,7 +440,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
         uint256 usdAmount
     ) external view returns (uint256 tokenAmount) {
         if (usdAmount == 0) return 0;
-        uint8 decimals = tokenDecimals[token];
+        uint8 decimals = tokenDecimalsCache[token];
         uint256 price = _getPrice(token); // 18 decimals
         uint256 normalized = (usdAmount * UBKOracleConstants.WAD) / price;
         tokenAmount = (normalized * (10 ** decimals)) / UBKOracleConstants.WAD;
@@ -503,8 +510,8 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
         address vault,
         address underlying
     ) internal checkRecursion returns (uint256 price) {
-        uint8 shareDecimals = tokenDecimals[vault];
-        uint8 underlyingDecimals = tokenDecimals[underlying];
+        uint8 shareDecimals = tokenDecimalsCache[vault];
+        uint8 underlyingDecimals = tokenDecimalsCache[underlying];
 
         uint256 oneShare = 10 ** shareDecimals;
         uint256 assetsPerShare = IERC4626(vault).convertToAssets(oneShare);
@@ -566,7 +573,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
                 block.timestamp - updatedAt > stalePeriod[token]
             ) return (0, false);
 
-            uint8 feedDecimals = AggregatorV3Interface(feed).decimals();
+            uint8 feedDecimals = feedDecimalsCache[feed];
             uint256 raw = uint256(answer);
 
             uint256 clPrice;
@@ -664,7 +671,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
         if (!isSupported[token]) {
             supportedTokens.push(token);
             isSupported[token] = true;
-            tokenDecimals[token] = _validateTokenDecimals(token);
+            tokenDecimalsCache[token] = _validateTokenDecimals(token);
             _setStalePeriod(
                 token,
                 UBKOracleConstants.ORACLE_DEFAULT_STALE_PERIOD
