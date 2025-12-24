@@ -43,6 +43,6 @@ library UBKOracleConstants {
     // -----------------------------------------------------------------------
     // Chainlink Feed Decimals Bounds
     // -----------------------------------------------------------------------
-    uint256 public constant ORACLE_MIN_CHAINLINK_FEED_DECIMALS = 6; // Same as UBKDecimalsBounded
-    uint256 public constant ORACLE_MAX_CHAINLINK_FEED_DECIMALS = 18; // Same as UBKDecimalsBounded
+    uint256 public constant ORACLE_MIN_CHAINLINK_FEED_DECIMALS = UBKConstants.GLOBAL_MIN_TOKEN_DECIMALS_ALLOWED; // Same as UBKDecimalsBounded (6)
+    uint256 public constant ORACLE_MAX_CHAINLINK_FEED_DECIMALS = UBKConstants.GLOBAL_MAX_TOKEN_DECIMALS_ALLOWED; // Same as UBKDecimalsBounded (18)
 }
