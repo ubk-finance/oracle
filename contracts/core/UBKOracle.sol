@@ -19,7 +19,7 @@ import "../constants/UBKOracleConstants.sol";
  *
  * @dev
  *  The contract computes normalized 1e18 (WAD) prices for all supported assets,
- *  combining manual overrides, ERC4626 vault conversions, and Chainlink feeds. 
+ *  combining manual overrides, ERC4626 vault conversions, and Chainlink feeds.
  *
  *  === PRICE RESOLUTION ORDER ===
  *  1️. Manual override (±10% bound from last valid)
@@ -176,8 +176,11 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     ) external onlyOwner {
         if (vault == address(0))
             revert ZeroAddress("UBKOracle::setVaultRateBounds", "vault");
-        if (minRate == 0 || maxRate <= minRate || maxRate > UBKOracleConstants.ORACLE_MAX_VAULT_RATE_WAD)
-            revert InvalidVaultBounds(vault, minRate, maxRate);
+        if (
+            minRate == 0 ||
+            maxRate <= minRate ||
+            maxRate > UBKOracleConstants.ORACLE_MAX_VAULT_RATE_WAD
+        ) revert InvalidVaultBounds(vault, minRate, maxRate);
 
         vaultRateBounds[vault] = VaultRateBounds(minRate, maxRate);
         emit VaultRateBoundsSet(vault, minRate, maxRate);
@@ -505,8 +508,11 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
 
         uint256 oneShare = 10 ** shareDecimals;
         uint256 assetsPerShare = IERC4626(vault).convertToAssets(oneShare);
-        if (assetsPerShare == 0 || assetsPerShare > 1e36)
-            revert InvalidVaultExchangeRate(vault, assetsPerShare);
+        if (
+            assetsPerShare == 0 ||
+            assetsPerShare >
+            UBKOracleConstants.ORACLE_MAX_VAULT_ASSETS_PER_SHARE
+        ) revert InvalidVaultExchangeRate(vault, assetsPerShare);
 
         uint256 scaledAssets = (assetsPerShare * UBKOracleConstants.WAD) /
             (10 ** underlyingDecimals);

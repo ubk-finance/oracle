@@ -23,6 +23,8 @@ library UBKOracleConstants {
     uint256 public constant ORACLE_MIN_VAULT_RATE_WAD = 0.2e18; // 0.2x (20%)
     uint256 public constant ORACLE_MAX_VAULT_RATE_WAD = 3e18; // 3x (300%)
 
+    uint256 public constant ORACLE_MAX_VAULT_ASSETS_PER_SHARE = 1e36;
+
     // -----------------------------------------------------------------------
     // Oracle Staleness Periods
     // -----------------------------------------------------------------------
