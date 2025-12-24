@@ -319,8 +319,6 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     function fetchAndUpdatePrice(
         address token
     ) external whenNotPaused returns (uint256) {
-        if (token == address(0))
-            revert ZeroAddress("UBKOracle::fetchAndUpdatePrice", "token");
         return _fetchAndUpdatePrice(token);
     }
 
