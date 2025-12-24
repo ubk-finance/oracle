@@ -363,7 +363,7 @@ describe("UBKOracle", function () {
 
         it("should revert if token is zero address", async () => {
           await expect(oracle.disableManualPrice(ethers.ZeroAddress))
-            .to.be.revertedWithCustomError(oracle, "ZeroAddress");
+            .to.be.revertedWithCustomError(oracle, "TokenNotSupported");
         });
 
         it("should not allow non-owner to disable manual mode", async () => {
@@ -742,7 +742,7 @@ describe("UBKOracle", function () {
 
       it("should revert if token is zero address", async () => {
         await expect(oracle["fetchAndUpdatePrice(address)"](ethers.ZeroAddress))
-          .to.be.revertedWithCustomError(oracle, "ZeroAddress");
+          .to.be.revertedWithCustomError(oracle, "TokenNotSupported");
       });
 
       it("should revert if oracle is paused", async () => {
@@ -770,10 +770,11 @@ describe("UBKOracle", function () {
         ).to.be.revertedWithCustomError(oracle, "StaleFallback");
       });
 
-      it("reverts with NoPriceFeed when token has no feed and is not ERC4626", async () => {
+      it("reverts with TokenNotSupported when token has no feed and is not ERC4626", async () => {
+
         await expect(
           oracle["fetchAndUpdatePrice(address)"](usdc.target)
-        ).to.be.revertedWithCustomError(oracle, "NoPriceFeed");
+        ).to.be.revertedWithCustomError(oracle, "TokenNotSupported");
       });
 
       it("reverts when ERC4626 recursion depth exceeds limit", async () => {
@@ -1020,10 +1021,12 @@ describe("UBKOracle", function () {
       });
 
       it("returns 0 when amount = 0 in toUSD()", async () => {
+        await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
         expect(await oracle.toUSD(usdc.target, 0)).to.equal(0n);
       });
 
       it("returns 0 when usdAmount = 0 in fromUSD()", async () => {
+        await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
         expect(await oracle.fromUSD(usdc.target, 0)).to.equal(0n);
       });
 

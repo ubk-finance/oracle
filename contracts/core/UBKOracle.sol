@@ -14,11 +14,11 @@ import "../errors/UBKOracleErrors.sol";
 import "../constants/UBKOracleConstants.sol";
 
 /**
- * @title Oracle
- * @notice This contract is an implementation of the IUBKOracle interface.
+ * @title UBKOracle
+ * @notice This contract is the canonical implementation of the IUBKOracle interface.
  *
  * @dev
- *  The oracle computes normalized 1e18 prices for all supported assets,
+ *  The contract computes normalized 1e18 (WAD) prices for all supported assets,
  *  combining manual overrides, ERC4626 vault conversions, and Chainlink feeds.
  *
  *  === PRICE RESOLUTION ORDER ===
@@ -26,6 +26,12 @@ import "../constants/UBKOracleConstants.sol";
  *  2. ERC4626 vault-derived (convertToAssets * underlying price)
  *  3️. Chainlink feed (normalized to 1e18)
  *
+ *  === DECIMAL INVARIANTS ===
+ *  - Only explicitly registered tokens may be priced or converted.
+ *  - Token decimals are validated once at registration and MUST lie within [6, 18].
+ *  - Validated decimals are cached immutably and never queried from token contracts at runtime.
+ *  - All internal price and value computations assume and rely on these enforced bounds.
+ *  - ERC-4626 vaults are only supported when vault.decimals() == underlying.decimals(), preventing cross-decimal normalization errors in vault pricing.
  *  === SAFETY FEATURES ===
  *  - Recursion guard (nested ERC4626 depth ≤ 5)
  *  - Chainlink stale-period enforcement
@@ -40,6 +46,7 @@ import "../constants/UBKOracleConstants.sol";
  *  - UI / Subgraphs can use `isPriceFresh()` and `getPriceAge()` for safety checks.
  *
  */
+
 contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     // -----------------------------------------------------------------------
     // Storage
@@ -80,6 +87,9 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     /// @notice Mapping to track supported tokens.
     mapping(address => bool) public isSupported;
 
+    /// @notice Cache that tracks decimals for supported tokens.
+    mapping(address => uint8) internal tokenDecimals;
+
     // -----------------------------------------------------------------------
     // Constructor & Modifiers
     // -----------------------------------------------------------------------
@@ -106,6 +116,12 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
         _recursionDepth--;
     }
 
+    /// @notice Does not allow execution of the decorated function if token is unsupported.
+    modifier supportedTokenOnly(address token) {
+        if (!isSupported[token]) revert TokenNotSupported(token);
+        _;
+    }
+
     // -----------------------------------------------------------------------
     // Admin / Configuration
     // -----------------------------------------------------------------------
@@ -121,21 +137,11 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     }
 
     /**
-     * @notice Sets the maximum time (in seconds) a Chainlink feed value is valid.
+     * @notice External facing admin function that sets the maximum time (in seconds) a Chainlink feed value is valid.
      * @param period The new fallback staleness threshold. Must be 1.5x of stalePeriod of the same token.
-     * @dev Must lie within [UBKOracleConstants.ORACLE_MIN_STALE_PERIOD, UBKOracleConstants.ORACLE_MAX_STALE_PERIOD].
      */
     function setStalePeriod(address token, uint256 period) external onlyOwner {
-        if (
-            period < UBKOracleConstants.ORACLE_MIN_STALE_PERIOD ||
-            period > UBKOracleConstants.ORACLE_MAX_STALE_PERIOD
-        ) revert InvalidStalePeriod(period);
-        stalePeriod[token] = period;
-        fallbackStalePeriod[token] =
-            UBKOracleConstants.ORACLE_DEFAULT_STALE_FALLBACK_MULTIPLIER *
-            period; //Minimum fallback period should be 2x stalePeriod[token].
-        emit StalePeriodUpdated(token, stalePeriod[token]);
-        emit FallbackStalePeriodUpdated(token, fallbackStalePeriod[token]);
+        _setStalePeriod(token, period);
     }
 
     /**
@@ -170,8 +176,11 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     ) external onlyOwner {
         if (vault == address(0))
             revert ZeroAddress("UBKOracle::setVaultRateBounds", "vault");
-        if (minRate == 0 || maxRate <= minRate || maxRate > 100e18)
-            revert InvalidVaultBounds(vault, minRate, maxRate);
+        if (
+            minRate == 0 ||
+            maxRate <= minRate ||
+            maxRate > UBKOracleConstants.ORACLE_MAX_VAULT_RATE_WAD
+        ) revert InvalidVaultBounds(vault, minRate, maxRate);
 
         vaultRateBounds[vault] = VaultRateBounds(minRate, maxRate);
         emit VaultRateBoundsSet(vault, minRate, maxRate);
@@ -190,6 +199,10 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     ) external onlyOwner whenNotPaused {
         if (token == address(0))
             revert ZeroAddress("UBKOracle::setManualPrice", "token");
+        if (!isSupported[token]) {
+            _addSupportedToken(token);
+        }
+
         if (
             price < UBKOracleConstants.ORACLE_MIN_ABSOLUTE_PRICE_WAD ||
             price > UBKOracleConstants.ORACLE_MAX_ABSOLUTE_PRICE_WAD
@@ -224,9 +237,9 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
      * @notice Disables manual pricing for a token.
      * @param token The token address.
      */
-    function disableManualPrice(address token) external onlyOwner {
-        if (token == address(0))
-            revert ZeroAddress("UBKOracle::disableManualPrice", "token");
+    function disableManualPrice(
+        address token
+    ) external onlyOwner supportedTokenOnly(token) {
         isManual[token] = false;
         emit ManualModeEnabled(token, false);
     }
@@ -265,8 +278,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
      * @notice Registers an ERC4626 vault and its underlying asset.
      * @param vault ERC4626 vault token.
      * @param underlying Reference underlying asset used for pricing.
-     * @dev Does not enforce .asset() == underlying for flexibility
-     *      (e.g., sUSDe → USDC pegging for depeg protection).
+     * @dev Stricly enforces == underlying for flexibility
      */
     function setERC4626Vault(
         address vault,
@@ -299,8 +311,6 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     function fetchAndUpdatePrice(
         address token
     ) external whenNotPaused returns (uint256) {
-        if (token == address(0))
-            revert ZeroAddress("UBKOracle::fetchAndUpdatePrice", "token");
         return _fetchAndUpdatePrice(token);
     }
 
@@ -373,17 +383,28 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     // -----------------------------------------------------------------------
 
     /**
-     * @notice Converts a token amount into USD (18 decimals)
-     * @param token Token address
-     * @param amount Raw token amount (native decimals)
-     * @return usdValue USD value (18 decimals)
+     * @notice Converts a supported token amount into USD (18 decimals).
+     * @dev
+     *  Requirements:
+     *  - `token` MUST be registered as supported by the oracle.
+     *  - Token decimals are cached at registration and guaranteed to be within [6,18].
+     *  - Reverts if the token is not supported or if the cached price is stale or unavailable.
+     *
+     *  Behavior:
+     *  - Returns 0 if `amount == 0` without reading oracle price.
+     *  - Uses cached decimals and cached price for deterministic gas usage.
+     *
+     * @param token Supported token address.
+     * @param amount Raw token amount in native decimals.
+     * @return usdValue USD value with 18 decimals of precision.
      */
+
     function toUSD(
         address token,
         uint256 amount
     ) external view returns (uint256 usdValue) {
         if (amount == 0) return 0;
-        uint8 decimals = IERC20Metadata(token).decimals();
+        uint8 decimals = tokenDecimals[token];
         uint256 normalized = (amount * UBKOracleConstants.WAD) /
             (10 ** decimals);
         uint256 price = _getPrice(token); // 18 decimals
@@ -391,17 +412,28 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     }
 
     /**
-     * @notice Converts a USD amount (18 decimals) into token units
-     * @param token Token address
-     * @param usdAmount USD value (18 decimals)
-     * @return tokenAmount Equivalent in token units
+     * @notice Converts a USD amount (18 decimals) into units of a supported token.
+     * @dev
+     *  Requirements:
+     *  - `token` MUST be registered as supported by the oracle.
+     *  - Token decimals are cached at registration and guaranteed to be within [6,18].
+     *  - Reverts if the token is not supported or if the cached price is stale or unavailable.
+     *
+     *  Behavior:
+     *  - Returns 0 if `usdAmount == 0` without reading oracle price.
+     *  - Uses cached decimals and cached price for deterministic gas usage.
+     *
+     * @param token Supported token address.
+     * @param usdAmount USD value with 18 decimals of precision.
+     * @return tokenAmount Equivalent amount in token native decimals.
      */
+
     function fromUSD(
         address token,
         uint256 usdAmount
     ) external view returns (uint256 tokenAmount) {
         if (usdAmount == 0) return 0;
-        uint8 decimals = IERC20Metadata(token).decimals();
+        uint8 decimals = tokenDecimals[token];
         uint256 price = _getPrice(token); // 18 decimals
         uint256 normalized = (usdAmount * UBKOracleConstants.WAD) / price;
         tokenAmount = (normalized * (10 ** decimals)) / UBKOracleConstants.WAD;
@@ -412,14 +444,35 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     // -----------------------------------------------------------------------
 
     /**
-     * @notice Returns the cached price for a token (1e18 precision).
-     * @dev Reverts if no valid price or if staleness > stalePeriod.
+     * @notice Returns the cached USD price for a token.
+     *
+     * @dev
+     *  This function is the canonical read path for all pricing operations
+     *  (including `toUSD` and `fromUSD`). It intentionally performs **no explicit
+     *  supported-token check** in order to minimize gas usage on hot, view-only paths.
+     *
+     *  Reverts in the following cases:
+     *
+     *   1. `NoFallbackPrice(token)`
+     *      - The token has **never had a successfully resolved and cached price**, OR
+     *      - The token is **unsupported** and therefore has no initialized pricing state.
+     *
+     *   2. `StalePrice(token, lastUpdated, now)`
+     *      - A cached price exists, but its age exceeds `stalePeriod[token]`.
+     *
+     *  Supported tokens are guaranteed to have:
+     *   - non-zero addresses,
+     *   - validated and cached decimals within [6, 18],
+     *   - pricing state initialized only via explicit configuration paths
+     *     (e.g. Chainlink feeds, ERC4626 vaults, or manual pricing).
+     *
+     *  As a result, callers of `toUSD` and `fromUSD` can safely rely on this function
+     *  for correctness while avoiding redundant SLOADs or branching.
+     *
      * @param token Asset token address.
-     * @return price Cached price in 1e18 precision.
+     * @return price Cached token price in 1e18 precision.
      */
-    function _getPrice(address token) internal view returns (uint256) {
-        if (token == address(0))
-            revert ZeroAddress("UBKOracle::getPrice", "token");
+    function _getPrice(address token) internal view returns (uint256 price) {
         LastValidPrice memory lv = lastValidPrice[token];
         if (lv.price == 0) revert NoFallbackPrice(token);
         if (!_isPriceFresh(token))
@@ -446,17 +499,20 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
      * @dev Derives price via convertToAssets() * underlying price.
      *      Ensures vault rate lies within acceptable bounds.
      */
-    function _getVaultPrice(
+    function _resolveVaultPrice(
         address vault,
         address underlying
     ) internal checkRecursion returns (uint256 price) {
-        uint8 shareDecimals = IERC20Metadata(vault).decimals();
-        uint8 underlyingDecimals = IERC20Metadata(underlying).decimals();
+        uint8 shareDecimals = tokenDecimals[vault];
+        uint8 underlyingDecimals = tokenDecimals[underlying];
 
         uint256 oneShare = 10 ** shareDecimals;
         uint256 assetsPerShare = IERC4626(vault).convertToAssets(oneShare);
-        if (assetsPerShare == 0 || assetsPerShare > 1e36)
-            revert InvalidVaultExchangeRate(vault, assetsPerShare);
+        if (
+            assetsPerShare == 0 ||
+            assetsPerShare >
+            UBKOracleConstants.ORACLE_MAX_VAULT_ASSETS_PER_SHARE
+        ) revert InvalidVaultExchangeRate(vault, assetsPerShare);
 
         uint256 scaledAssets = (assetsPerShare * UBKOracleConstants.WAD) /
             (10 ** underlyingDecimals);
@@ -541,11 +597,14 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
      * @return price Resolved fair price in 1e18 precision.
      * @dev May trigger state updates if underlying vaults are resolved.
      */
-    function _resolvePrice(address token) internal returns (uint256 price) {
+    function _resolvePrice(
+        address token
+    ) internal supportedTokenOnly(token) returns (uint256 price) {
         if (isManual[token]) return manualPrices[token];
 
         address underlying = erc4626Underlying[token];
-        if (underlying != address(0)) return _getVaultPrice(token, underlying);
+        if (underlying != address(0))
+            return _resolveVaultPrice(token, underlying);
 
         address feed = chainlinkFeeds[token];
         if (feed == address(0)) revert NoPriceFeed(token);
@@ -580,7 +639,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
         if (
             price < UBKOracleConstants.ORACLE_MIN_ABSOLUTE_PRICE_WAD ||
             price > UBKOracleConstants.ORACLE_MAX_ABSOLUTE_PRICE_WAD
-        ) revert InvalidOraclePrice(token, address(0));
+        ) revert InvalidOraclePrice(token, price);
 
         lastValidPrice[token] = LastValidPrice(price, block.timestamp);
         emit LastValidPriceUpdated(token, price, block.timestamp);
@@ -598,9 +657,18 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
      * Emits a {TokenSupportAdded} event upon successful addition.
      */
     function _addSupportedToken(address token) internal {
+        if (token == address(0)) {
+            revert ZeroAddress("UBKOracle::_addSupportedToken", "token");
+        }
+
         if (!isSupported[token]) {
             supportedTokens.push(token);
             isSupported[token] = true;
+            tokenDecimals[token] = _validateTokenDecimals(token);
+            _setStalePeriod(
+                token,
+                UBKOracleConstants.ORACLE_DEFAULT_STALE_PERIOD
+            );
             emit TokenSupportAdded(token);
         }
     }
@@ -651,5 +719,23 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
                 underlying
             );
         }
+    }
+
+    /**
+     * @notice Sets the maximum time (in seconds) a Chainlink feed value is valid.
+     * @param period The new fallback staleness threshold. Must be 1.5x of stalePeriod of the same token.
+     * @dev Must lie within [UBKOracleConstants.ORACLE_MIN_STALE_PERIOD, UBKOracleConstants.ORACLE_MAX_STALE_PERIOD].
+     */
+    function _setStalePeriod(address token, uint256 period) internal {
+        if (
+            period < UBKOracleConstants.ORACLE_MIN_STALE_PERIOD ||
+            period > UBKOracleConstants.ORACLE_MAX_STALE_PERIOD
+        ) revert InvalidStalePeriod(period);
+        stalePeriod[token] = period;
+        fallbackStalePeriod[token] =
+            UBKOracleConstants.ORACLE_DEFAULT_STALE_FALLBACK_MULTIPLIER *
+            period; //Minimum fallback period should be 2x stalePeriod[token].
+        emit StalePeriodUpdated(token, stalePeriod[token]);
+        emit FallbackStalePeriodUpdated(token, fallbackStalePeriod[token]);
     }
 }
