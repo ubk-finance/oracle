@@ -244,9 +244,9 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
      * @notice Disables manual pricing for a token.
      * @param token The token address.
      */
-    function disableManualPrice(address token) external onlyOwner {
-        if (token == address(0))
-            revert ZeroAddress("UBKOracle::disableManualPrice", "token");
+    function disableManualPrice(
+        address token
+    ) external onlyOwner supportedTokenOnly(token) {
         isManual[token] = false;
         emit ManualModeEnabled(token, false);
     }
