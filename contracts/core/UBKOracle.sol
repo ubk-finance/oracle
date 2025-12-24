@@ -137,21 +137,11 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     }
 
     /**
-     * @notice Sets the maximum time (in seconds) a Chainlink feed value is valid.
+     * @notice External facing admin function that sets the maximum time (in seconds) a Chainlink feed value is valid.
      * @param period The new fallback staleness threshold. Must be 1.5x of stalePeriod of the same token.
-     * @dev Must lie within [UBKOracleConstants.ORACLE_MIN_STALE_PERIOD, UBKOracleConstants.ORACLE_MAX_STALE_PERIOD].
      */
     function setStalePeriod(address token, uint256 period) external onlyOwner {
-        if (
-            period < UBKOracleConstants.ORACLE_MIN_STALE_PERIOD ||
-            period > UBKOracleConstants.ORACLE_MAX_STALE_PERIOD
-        ) revert InvalidStalePeriod(period);
-        stalePeriod[token] = period;
-        fallbackStalePeriod[token] =
-            UBKOracleConstants.ORACLE_DEFAULT_STALE_FALLBACK_MULTIPLIER *
-            period; //Minimum fallback period should be 2x stalePeriod[token].
-        emit StalePeriodUpdated(token, stalePeriod[token]);
-        emit FallbackStalePeriodUpdated(token, fallbackStalePeriod[token]);
+        _setStalePeriod(token, period);
     }
 
     /**
@@ -670,6 +660,10 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
             supportedTokens.push(token);
             isSupported[token] = true;
             tokenDecimals[token] = _validateTokenDecimals(token);
+            _setStalePeriod(
+                token,
+                UBKOracleConstants.ORACLE_DEFAULT_STALE_PERIOD
+            );
             emit TokenSupportAdded(token);
         }
     }
@@ -720,5 +714,23 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
                 underlying
             );
         }
+    }
+
+    /**
+     * @notice Sets the maximum time (in seconds) a Chainlink feed value is valid.
+     * @param period The new fallback staleness threshold. Must be 1.5x of stalePeriod of the same token.
+     * @dev Must lie within [UBKOracleConstants.ORACLE_MIN_STALE_PERIOD, UBKOracleConstants.ORACLE_MAX_STALE_PERIOD].
+     */
+    function _setStalePeriod(address token, uint256 period) internal {
+        if (
+            period < UBKOracleConstants.ORACLE_MIN_STALE_PERIOD ||
+            period > UBKOracleConstants.ORACLE_MAX_STALE_PERIOD
+        ) revert InvalidStalePeriod(period);
+        stalePeriod[token] = period;
+        fallbackStalePeriod[token] =
+            UBKOracleConstants.ORACLE_DEFAULT_STALE_FALLBACK_MULTIPLIER *
+            period; //Minimum fallback period should be 2x stalePeriod[token].
+        emit StalePeriodUpdated(token, stalePeriod[token]);
+        emit FallbackStalePeriodUpdated(token, fallbackStalePeriod[token]);
     }
 }
