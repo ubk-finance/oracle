@@ -681,9 +681,9 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
      */
     function _validateChainlinkFeed(address token, address feed) internal view {
         if (token == address(0))
-            revert ZeroAddress("UBKOracle::setChainlinkFeed", "token");
+            revert ZeroAddress("UBKOracle::_validateChainlinkFeed", "token");
         if (feed == address(0))
-            revert ZeroAddress("UBKOracle::setChainlinkFeed", "feed");
+            revert ZeroAddress("UBKOracle::_validateChainlinkFeed", "feed");
         if (feed.code.length == 0) revert InvalidFeedContract(feed);
         _validateTokenDecimals(token);
     }
