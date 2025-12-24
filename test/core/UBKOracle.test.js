@@ -363,7 +363,7 @@ describe("UBKOracle", function () {
 
         it("should revert if token is zero address", async () => {
           await expect(oracle.disableManualPrice(ethers.ZeroAddress))
-            .to.be.revertedWithCustomError(oracle, "ZeroAddress");
+            .to.be.revertedWithCustomError(oracle, "TokenNotSupported");
         });
 
         it("should not allow non-owner to disable manual mode", async () => {
@@ -742,7 +742,7 @@ describe("UBKOracle", function () {
 
       it("should revert if token is zero address", async () => {
         await expect(oracle["fetchAndUpdatePrice(address)"](ethers.ZeroAddress))
-          .to.be.revertedWithCustomError(oracle, "ZeroAddress");
+          .to.be.revertedWithCustomError(oracle, "TokenNotSupported");
       });
 
       it("should revert if oracle is paused", async () => {
