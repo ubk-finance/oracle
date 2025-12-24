@@ -14,12 +14,12 @@ import "../errors/UBKOracleErrors.sol";
 import "../constants/UBKOracleConstants.sol";
 
 /**
- * @title Oracle
- * @notice This contract is an implementation of the IUBKOracle interface.
+ * @title UBKOracle
+ * @notice This contract is the canonical implementation of the IUBKOracle interface.
  *
  * @dev
- *  The oracle computes normalized 1e18 prices for all supported assets,
- *  combining manual overrides, ERC4626 vault conversions, and Chainlink feeds.
+ *  The contract computes normalized 1e18 (WAD) prices for all supported assets,
+ *  combining manual overrides, ERC4626 vault conversions, and Chainlink feeds. 
  *
  *  === PRICE RESOLUTION ORDER ===
  *  1️. Manual override (±10% bound from last valid)
@@ -275,8 +275,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
      * @notice Registers an ERC4626 vault and its underlying asset.
      * @param vault ERC4626 vault token.
      * @param underlying Reference underlying asset used for pricing.
-     * @dev Does not enforce .asset() == underlying for flexibility
-     *      (e.g., sUSDe → USDC pegging for depeg protection).
+     * @dev Stricly enforces == underlying for flexibility
      */
     function setERC4626Vault(
         address vault,
