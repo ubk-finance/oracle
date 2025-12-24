@@ -176,7 +176,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     ) external onlyOwner {
         if (vault == address(0))
             revert ZeroAddress("UBKOracle::setVaultRateBounds", "vault");
-        if (minRate == 0 || maxRate <= minRate || maxRate > 100e18)
+        if (minRate == 0 || maxRate <= minRate || maxRate > UBKOracleConstants.ORACLE_MAX_VAULT_RATE_WAD)
             revert InvalidVaultBounds(vault, minRate, maxRate);
 
         vaultRateBounds[vault] = VaultRateBounds(minRate, maxRate);
