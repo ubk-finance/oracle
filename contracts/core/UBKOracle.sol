@@ -117,7 +117,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     }
 
     /// @notice Does not allow execution of the decorated function if token is unsupported.
-    modifier supportedToken(address token) {
+    modifier supportedTokenOnly(address token) {
         if (!isSupported[token]) revert TokenNotSupported(token);
         _;
     }
@@ -412,7 +412,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     function toUSD(
         address token,
         uint256 amount
-    ) external view supportedToken(token) returns (uint256 usdValue) {
+    ) external view returns (uint256 usdValue) {
         if (amount == 0) return 0;
         uint8 decimals = tokenDecimals[token];
         uint256 normalized = (amount * UBKOracleConstants.WAD) /
@@ -441,7 +441,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     function fromUSD(
         address token,
         uint256 usdAmount
-    ) external view supportedToken(token) returns (uint256 tokenAmount) {
+    ) external view returns (uint256 tokenAmount) {
         if (usdAmount == 0) return 0;
         uint8 decimals = tokenDecimals[token];
         uint256 price = _getPrice(token); // 18 decimals
@@ -460,8 +460,6 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
      * @return price Cached price in 1e18 precision.
      */
     function _getPrice(address token) internal view returns (uint256) {
-        if (token == address(0))
-            revert ZeroAddress("UBKOracle::getPrice", "token");
         LastValidPrice memory lv = lastValidPrice[token];
         if (lv.price == 0) revert NoFallbackPrice(token);
         if (!_isPriceFresh(token))
@@ -583,11 +581,14 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
      * @return price Resolved fair price in 1e18 precision.
      * @dev May trigger state updates if underlying vaults are resolved.
      */
-    function _resolvePrice(address token) internal returns (uint256 price) {
+    function _resolvePrice(
+        address token
+    ) internal supportedTokenOnly(token) returns (uint256 price) {
         if (isManual[token]) return manualPrices[token];
 
         address underlying = erc4626Underlying[token];
-        if (underlying != address(0)) return _resolveVaultPrice(token, underlying);
+        if (underlying != address(0))
+            return _resolveVaultPrice(token, underlying);
 
         address feed = chainlinkFeeds[token];
         if (feed == address(0)) revert NoPriceFeed(token);
@@ -617,7 +618,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
      */
     function _fetchAndUpdatePrice(
         address token
-    ) internal supportedToken(token) returns (uint256 price) {
+    ) internal returns (uint256 price) {
         price = _resolvePrice(token);
         if (
             price < UBKOracleConstants.ORACLE_MIN_ABSOLUTE_PRICE_WAD ||
@@ -640,6 +641,10 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
      * Emits a {TokenSupportAdded} event upon successful addition.
      */
     function _addSupportedToken(address token) internal {
+        if (token == address(0)) {
+            revert ZeroAddress("UBKOracle::_addSupportedToken", "token");
+        }
+
         if (!isSupported[token]) {
             supportedTokens.push(token);
             isSupported[token] = true;
