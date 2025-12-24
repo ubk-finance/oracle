@@ -248,10 +248,35 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     }
 
     /**
-     * @notice Registers a Chainlink feed and validates its response.
-     * @param token Asset token address.
-     * @param feed Chainlink AggregatorV3 feed address.
-     * @dev Ensures decimals ≤ 18 and feed returns a nonzero updatedAt value.
+     * @notice Registers a Chainlink price feed as the canonical oracle source for a token.
+     *
+     * @dev
+     *  This function performs all required validation before binding a token to a
+     *  Chainlink AggregatorV3 feed. If this call succeeds, the oracle guarantees that:
+     *
+     *   - `token` is explicitly supported by the oracle and has validated, cached
+     *     ERC-20 decimals within global bounds.
+     *   - `feed` is a deployed AggregatorV3 contract with bounded, immutable decimals
+     *     that are safe to cache and use for price normalization.
+     *   - The feed is live and returning sane data at registration time
+     *     (non-zero answer and timestamp).
+     *
+     *  Upon successful registration:
+     *   - The feed address and its decimals are cached immutably.
+     *   - Manual pricing for `token` is disabled.
+     *   - The token becomes eligible for pricing, conversion, and fallback logic
+     *     across all oracle read paths.
+     *
+     *  This function is administrative and MUST be called only during trusted
+     *  configuration or governance actions. Runtime pricing paths assume that all
+     *  invariants enforced here permanently hold.
+     *
+     * @param token The asset token whose price will be sourced from Chainlink.
+     * @param feed  The Chainlink AggregatorV3 contract providing price data for `token`.
+     *
+     * @custom:invariant If this function returns, the oracle may safely resolve,
+     *                   normalize, and cache prices for `token` without performing
+     *                   any further structural validation on the feed.
      */
     function setChainlinkFeed(address token, address feed) external onlyOwner {
         // 1. Validate inputs and extract trusted feed metadata
