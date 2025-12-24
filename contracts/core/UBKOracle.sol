@@ -622,7 +622,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
         if (
             price < UBKOracleConstants.ORACLE_MIN_ABSOLUTE_PRICE_WAD ||
             price > UBKOracleConstants.ORACLE_MAX_ABSOLUTE_PRICE_WAD
-        ) revert InvalidOraclePrice(token, address(0));
+        ) revert InvalidOraclePrice(token, price);
 
         lastValidPrice[token] = LastValidPrice(price, block.timestamp);
         emit LastValidPriceUpdated(token, price, block.timestamp);

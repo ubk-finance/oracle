@@ -13,7 +13,7 @@ error InvalidERC4626Vault(address vault);
 error InvalidFeedContract(address feed);
 error InvalidFeedDecimals(address feed, uint8 decimals);
 error InvalidManualPrice(address token, uint256 price);
-error InvalidOraclePrice(address token, address feed);
+error InvalidOraclePrice(address token, uint256 price);
 error InvalidStalePeriod(uint256 period);
 error InvalidVaultBounds(address vault, uint256 minRate, uint256 maxRate);
 error InvalidVaultExchangeRate(address vault, uint256 rate);
