@@ -272,7 +272,6 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
         } catch {
             revert InvalidFeedContract(feed);
         }
-        
         // 3. Commit validated configuration to storage
         chainlinkFeeds[token] = feed; // Map token to feed
         aggDecimalsCache[feed] = aggDecimals; // Cache feed decimals
@@ -683,10 +682,38 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     }
 
     /**
-     * @notice Validates assets and their associated Chainlink feeds before mutating system state.
-     * @param token Asset token address.
-     * @param feed Chainlink AggregatorV3 feed address.
-     * @dev Ensures decimals ≤ 18 and feed returns a nonzero updatedAt value.
+     * @notice Validates and canonicalizes a Chainlink price feed configuration.
+     *
+     * @dev
+     *  This function performs all one-time validation required before a Chainlink
+     *  aggregator may be trusted by the oracle. If this function returns successfully,
+     *  the following invariants are guaranteed for the lifetime of the configuration:
+     *
+     *   - `token` is a non-zero ERC-20 address with validated decimals within
+     *     the oracle’s global bounds.
+     *   - `feed` is a non-zero deployed contract address implementing the
+     *     Chainlink AggregatorV3 interface.
+     *   - The aggregator’s reported decimals lie within the oracle’s accepted
+     *     Chainlink decimal range and are safe to cache immutably.
+     *
+     *  This function does NOT:
+     *   - read or validate live pricing data,
+     *   - mutate oracle state,
+     *   - assume any particular price semantics beyond scale correctness.
+     *
+     *  It exists to separate structural validation from runtime pricing logic,
+     *  enabling deterministic gas usage and invariant-based reasoning throughout
+     *  the oracle’s hot paths.
+     *
+     * @param token The asset token whose price will be sourced from the feed.
+     * @param feed  The Chainlink AggregatorV3 contract providing price data for `token`.
+     *
+     * @return agg         The validated AggregatorV3Interface instance.
+     * @return aggDecimals The validated and bounded number of decimals used by the aggregator.
+     *
+     * @custom:invariant If this function returns, `aggDecimals` may be safely cached
+     *                   and used for all future price normalization without further
+     *                   external calls.
      */
     function _validateChainlinkFeed(
         address token,
