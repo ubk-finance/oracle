@@ -557,14 +557,14 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
      *
      * @dev
      *  This function is the canonical read path for all pricing operations
-     *  (including `toUSD` and `fromUSD`). It intentionally performs **no explicit
-     *  supported-token check** in order to minimize gas usage on hot, view-only paths.
+     *  (including `toUSD` and `fromUSD`). It intentionally performs no explicit
+     *  supported-token check in order to minimize gas usage on hot, view-only paths.
      *
      *  Reverts in the following cases:
      *
      *   1. `NoFallbackPrice(token)`
-     *      - The token has **never had a successfully resolved and cached price**, OR
-     *      - The token is **unsupported AND has no remaining cached pricing state**.
+     *      - The token has never had a successfully resolved and cached price, OR
+     *      - The token is unsupported AND has no remaining cached pricing state.
      *
      *   2. `StalePrice(token, lastUpdated, now)`
      *      - A cached price exists, but its age exceeds `stalePeriod[token]`.
