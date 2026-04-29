@@ -72,7 +72,7 @@ contract UBKOracleKeeper is AutomationCompatibleInterface, Ownable {
     }
 
     // -----------------------------------------------------------------------
-    // Public API
+    // Public API - Views
     // -----------------------------------------------------------------------
 
     /**
@@ -89,6 +89,10 @@ contract UBKOracleKeeper is AutomationCompatibleInterface, Ownable {
     ) external view override returns (bool upkeepNeeded, bytes memory) {
         upkeepNeeded = _checkUpkeep();
     }
+
+    // -----------------------------------------------------------------------
+    // Public API - Mutators
+    // -----------------------------------------------------------------------
 
     /**
      * @notice Performs a Chainlink Automation-triggered oracle price update.
@@ -120,7 +124,24 @@ contract UBKOracleKeeper is AutomationCompatibleInterface, Ownable {
     }
 
     // -----------------------------------------------------------------------
-    // Internal helpers
+    // Internal helpers - Views
+    // -----------------------------------------------------------------------
+
+    /**
+     * @notice Executes the shared interval dependent upkeep logic.
+     * @return upkeepNeeded True if the configured interval has elapsed since the last run.
+     *
+     * @dev
+     * - Called by _run(), which in turn is called by both run() and performUpkeep().
+     * - Uses `block.timestamp` to determine eligibility.
+     * - Does not perform any state changes.
+     */
+    function _checkUpkeep() internal view returns (bool upkeepNeeded) {
+        upkeepNeeded = block.timestamp >= lastRun + interval;
+    }
+
+    // -----------------------------------------------------------------------
+    // Internal helpers - Mutators
     // -----------------------------------------------------------------------
 
     /**
@@ -139,18 +160,5 @@ contract UBKOracleKeeper is AutomationCompatibleInterface, Ownable {
 
         lastRun = block.timestamp;
         oracle.fetchAndUpdatePrice(oracle.getSupportedTokens());
-    }
-
-    /**
-     * @notice Executes the shared interval dependent upkeep logic.
-     * @return upkeepNeeded True if the configured interval has elapsed since the last run.
-     *
-     * @dev
-     * - Called by _run(), which in turn is called by both run() and performUpkeep().
-     * - Uses `block.timestamp` to determine eligibility.
-     * - Does not perform any state changes.
-     */
-    function _checkUpkeep() internal view returns (bool upkeepNeeded) {
-        upkeepNeeded = block.timestamp >= lastRun + interval;
     }
 }
