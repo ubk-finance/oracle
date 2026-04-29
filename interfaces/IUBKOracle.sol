@@ -85,6 +85,15 @@ interface IUBKOracle {
         uint256 usdAmount
     ) external view returns (uint256 tokenAmount);
 
+    /**
+     * @notice Returns the list of all supported token addresses.
+     * @return tokens An array of all currently supported token addresses.
+     */
+    function getSupportedTokens()
+        external
+        view
+        returns (address[] memory tokens);
+
     // -----------------------------------------------------------------------
     // KEEPER / MUTATOR FUNCTIONS
     // -----------------------------------------------------------------------
@@ -94,9 +103,15 @@ interface IUBKOracle {
      * @dev Keeper entrypoint. May revert if price resolution fails.
      */
     function fetchAndUpdatePrice(address token) external returns (uint256);
+
+    /**
+     * @notice Batch method for fetchAndUpdatePrice.
+     * @dev Keeper entrypoint. May revert if price resolution fails.
+     */
     function fetchAndUpdatePrice(
         address[] calldata tokens
     ) external returns (uint256[] memory);
+
     // -----------------------------------------------------------------------
     // ADMIN / GOVERNANCE CONFIGURATION
     // -----------------------------------------------------------------------
