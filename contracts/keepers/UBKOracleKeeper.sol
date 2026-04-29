@@ -160,22 +160,24 @@ contract UBKOracleKeeper is
      * @notice Executes the shared oracle keeper logic.
      *
      * @dev Called by both `performUpkeep` and `run`.
-     *      If the configured interval has not elapsed, this function exits without
-     *      reverting. Otherwise, it updates `lastRun` before calling the oracle to
-     *      reduce the risk of repeated execution during the same eligible window.
+     *      If the configured interval has not elapsed, this function exits early
+     *      without reverting.
      *
-     * Fetches the currently supported tokens from the oracle and triggers a price
-     * update for those tokens.
+     * Attempts to fetch and update prices for all supported tokens via the oracle:
+     * - On success: updates `lastRun` and emits `KeeperTaskCompleted`.
+     * - On failure: does not update `lastRun` and emits `KeeperTaskFailed`.
+     *
+     * This design allows the keeper to retry execution on subsequent calls if the
+     * oracle update fails, improving resilience to transient errors.
      */
     function _run() internal {
-        // Validate if upkeep threshold has passed.
         if (!_checkUpkeep()) return;
 
-        // Perform upkeep.
-        lastRun = block.timestamp;
-        oracle.fetchAndUpdatePrice(oracle.getSupportedTokens());
-
-        // Emit event for observability.
-        emit KeeperTaskCompleted(lastRun);
+        try oracle.fetchAndUpdatePrice(oracle.getSupportedTokens()) {
+            lastRun = block.timestamp;
+            emit KeeperTaskCompleted(msg.sender, lastRun, interval);
+        } catch {
+            emit KeeperTaskFailed(msg.sender, block.timestamp, interval);
+        }
     }
 }
