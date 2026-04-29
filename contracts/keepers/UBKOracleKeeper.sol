@@ -1,35 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/AutomationCompatibleInterface.sol";
+
 import "../../interfaces/IUBKOracle.sol";
+import "../constants/UBKOracleConstants.sol";
 
-contract OracleKeeper is AutomationCompatibleInterface {
-    IUBKOracle public immutable oracle;
+contract UBKOracleKeeper is AutomationCompatibleInterface, Ownable {
+    IUBKOracle public immutable oracle; // Oracle is immutable post construction.
 
-    uint256 public lastRun;
-    uint256 public interval; // configurable upkeep interval
+    uint256 public lastRun; // Defaults to 0.
+    uint256 public interval =
+        UBKOracleConstants.ORACLE_DEFAULT_CHAINLINK_KEEPER_INTERVAL; // Defaults to 12 hours.
 
-    uint256 public constant MIN_INTERVAL = 15 minutes;
-    uint256 public constant MAX_INTERVAL = 24 hours;
-
-    constructor(address _oracle, uint256 _interval) {
-        require(
-            _interval >= MIN_INTERVAL && _interval <= MAX_INTERVAL,
-            "Interval out of bounds"
-        );
-
+    constructor(address _owner, address _oracle) Ownable(_owner) {
         oracle = IUBKOracle(_oracle);
-        interval = _interval;
     }
 
     // Chainlink Automation
-    function checkUpkeep(bytes calldata)
-        external
-        view
-        override
-        returns (bool upkeepNeeded, bytes memory)
-    {
+    function checkUpkeep(
+        bytes calldata
+    ) external view override returns (bool upkeepNeeded, bytes memory) {
         upkeepNeeded = block.timestamp >= lastRun + interval;
     }
 
