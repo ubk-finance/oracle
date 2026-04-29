@@ -51,7 +51,14 @@ library UBKOracleConstants {
     // -----------------------------------------------------------------------
     // Chainlink Gelato Interval Bounds
     // -----------------------------------------------------------------------
-    uint256 public constant ORACLE_MIN_CHAINLINK_KEEPER_INTERVAL = 15 minutes;
-    uint256 public constant ORACLE_DEFAULT_CHAINLINK_KEEPER_INTERVAL = 12 hours;
-    uint256 public constant ORACLE_MAX_CHAINLINK_KEEPER_INTERVAL = 24 hours;
+    uint256 public constant ORACLE_MIN_KEEPER_INTERVAL = 15 minutes;
+    uint256 public constant ORACLE_DEFAULT_KEEPER_INTERVAL = 12 hours;
+    uint256 public constant ORACLE_MAX_KEEPER_INTERVAL = 24 hours;
+
+    // -----------------------------------------------------------------------
+    // Chainlink Gelato Retry Factor Bounds
+    // -----------------------------------------------------------------------
+    uint256 public constant ORACLE_MIN_KEEPER_RETRY_FACTOR = 15 minutes;
+    uint256 public constant ORACLE_DEFAULT_KEEPER_RETRY_FACTOR = 12 hours;
+    uint256 public constant ORACLE_MAX_KEEPER_RETRY_FACTOR = 24 hours;
 }

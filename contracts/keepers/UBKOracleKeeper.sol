@@ -32,9 +32,11 @@ contract UBKOracleKeeper is
 {
     IUBKOracle public immutable oracle; // Oracle is immutable post construction.
 
-    uint256 public lastRun; // Defaults to 0.
-    uint256 public interval =
-        UBKOracleConstants.ORACLE_DEFAULT_CHAINLINK_KEEPER_INTERVAL; // Defaults to 12 hours.
+    uint256 public lastRun; // Initializes to 0.
+    uint256 public interval = UBKOracleConstants.ORACLE_DEFAULT_KEEPER_INTERVAL; // Initializes to 12 hours.
+
+    uint256 public retryFactor = 1 hours; // Initialized retry factor
+    bool public lastExecutionFailed; // Initializes to false
 
     /**
      * @notice Initializes the keeper with an owner and oracle contract.
@@ -64,9 +66,8 @@ contract UBKOracleKeeper is
     function setInterval(uint256 _interval) external onlyOwner {
         // Validate _interval first.
         if (
-            _interval >
-            UBKOracleConstants.ORACLE_MAX_CHAINLINK_KEEPER_INTERVAL ||
-            _interval < UBKOracleConstants.ORACLE_MIN_CHAINLINK_KEEPER_INTERVAL
+            _interval > UBKOracleConstants.ORACLE_MAX_KEEPER_INTERVAL ||
+            _interval < UBKOracleConstants.ORACLE_MIN_KEEPER_INTERVAL
         ) {
             revert InvalidThreshold(
                 "UBKOracleKeeper::setInterval",
@@ -100,6 +101,15 @@ contract UBKOracleKeeper is
         bytes calldata
     ) external view override returns (bool upkeepNeeded, bytes memory) {
         upkeepNeeded = _checkUpkeep();
+    }
+
+    /**
+     * @notice Computes and returns the timestamp after which the next upkeep is to be attempted.
+     * @return timestamp
+     *
+     */
+    function timeToUpkeep() external view returns (uint256 timestamp) {
+        return _timeToUpkeep();
     }
 
     // -----------------------------------------------------------------------
@@ -149,7 +159,22 @@ contract UBKOracleKeeper is
      * - Does not perform any state changes.
      */
     function _checkUpkeep() internal view returns (bool upkeepNeeded) {
-        upkeepNeeded = block.timestamp >= lastRun + interval;
+        upkeepNeeded = block.timestamp >= _timeToUpkeep();
+    }
+
+    /**
+     * @notice Computes and returns the timestamp after which the next upkeep attempt is to be attempted.
+     * @return timestamp
+     *
+     * @dev
+     * - Called by _checkUpkeep(), which in turn is called by both run() and performUpkeep().
+     * - Does not perform any state changes.
+     */
+    function _timeToUpkeep() internal view returns (uint256 timestamp) {
+        timestamp = lastRun + interval; // Default case. Last execution succeeded.
+        if (lastExecutionFailed) {
+            timestamp = lastRun + retryFactor; // Failure case. Last execution failed. Try again while avoiding retry storms.
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -173,10 +198,13 @@ contract UBKOracleKeeper is
     function _run() internal {
         if (!_checkUpkeep()) return;
 
+        lastRun = block.timestamp; // Update the lastRun timestamp
+
         try oracle.fetchAndUpdatePrice(oracle.getSupportedTokens()) {
-            lastRun = block.timestamp;
+            lastExecutionFailed = false; // Mark success
             emit KeeperTaskCompleted(msg.sender, lastRun, interval);
         } catch {
+            lastExecutionFailed = true; // Mark failure. Allow for retryFactor buffering.
             emit KeeperTaskFailed(msg.sender, block.timestamp, interval);
         }
     }

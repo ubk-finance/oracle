@@ -1264,8 +1264,8 @@ describe("UBKOracle", function () {
           expect(needed).to.equal(true); // Sanity check
           await expect(keeper.performUpkeep("0x"))
             .to.emit(keeper, "KeeperTaskFailed");
-          expect(await keeper.lastRun()).to.equal(0); // Must remain 0 as keeper op failed
-        });
+            expect(await keeper.lastExecutionFailed()).to.equal(true); // Failure case confirmation.
+          });
 
         it("allows for successful retries post oracle recovery", async () => {
           // create a failure state for the oracle and keeper first.
@@ -1274,10 +1274,12 @@ describe("UBKOracle", function () {
           expect(needed).to.equal(true); // Sanity check
           await expect(keeper.performUpkeep("0x"))
             .to.emit(keeper, "KeeperTaskFailed"); // Failure case.
-          expect(await keeper.lastRun()).to.equal(0); // Failure case confirmation.
-
+            expect(await keeper.lastExecutionFailed()).to.equal(true); // Failure case confirmation.
+        
           // recover oracle
+          await time.increase(await keeper.retryFactor() + 1n);
           await oracle.setOracleMode(0); // Move oracle back to NORMAL mode
+         
           await expect(keeper.performUpkeep("0x"))
             .to.emit(keeper, "KeeperTaskCompleted"); // Success case.
           expect(await keeper.lastRun()).to.be.gt(0); // Success case confirmation.
@@ -1306,8 +1308,8 @@ describe("UBKOracle", function () {
           expect(needed).to.equal(true); // Sanity check
           await expect(keeper.run())
             .to.emit(keeper, "KeeperTaskFailed");
-          expect(await keeper.lastRun()).to.equal(0); // Must remain 0 as keeper op failed
-        });
+            expect(await keeper.lastExecutionFailed()).to.equal(true); // Failure case confirmation.
+          });
 
         it("allows for successful retries post oracle recovery", async () => {
           // create a failure state for the oracle and keeper first.
@@ -1316,10 +1318,12 @@ describe("UBKOracle", function () {
           expect(needed).to.equal(true); // Sanity check
           await expect(keeper.run())
             .to.emit(keeper, "KeeperTaskFailed"); // Failure case.
-          expect(await keeper.lastRun()).to.equal(0); // Failure case confirmation.
+          expect(await keeper.lastExecutionFailed()).to.equal(true); // Failure case confirmation.
 
           // recover oracle
+          await time.increase(await keeper.retryFactor()); // 3 hours. Default backoff.
           await oracle.setOracleMode(0); // Move oracle back to NORMAL mode
+          
           await expect(keeper.run())
             .to.emit(keeper, "KeeperTaskCompleted"); // Success case.
           expect(await keeper.lastRun()).to.be.gt(0); // Success case confirmation.
