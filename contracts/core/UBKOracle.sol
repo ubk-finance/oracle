@@ -435,7 +435,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     function toUSD(
         address token,
         uint256 amount
-    ) external view returns (uint256 usdValue) {
+    ) external view supportedTokenOnly(token) returns (uint256 usdValue) {
         if (amount == 0) return 0;
         uint8 decimals = tokenDecimalsCache[token];
         uint256 normalized = (amount * UBKOracleConstants.WAD) /
@@ -464,7 +464,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     function fromUSD(
         address token,
         uint256 usdAmount
-    ) external view returns (uint256 tokenAmount) {
+    ) external view supportedTokenOnly(token) returns (uint256 tokenAmount) {
         if (usdAmount == 0) return 0;
         uint8 decimals = tokenDecimalsCache[token];
         uint256 price = _getPrice(token); // 18 decimals
