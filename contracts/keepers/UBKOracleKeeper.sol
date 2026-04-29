@@ -44,6 +44,37 @@ contract UBKOracleKeeper is AutomationCompatibleInterface, Ownable {
         oracle = IUBKOracle(_oracle);
     }
 
+    // -----------------------------------------------------------------------
+    // Admin / Configuration
+    // -----------------------------------------------------------------------
+
+    /**
+     * @notice Updates the keeper execution interval.
+     *
+     * @dev Restricted to the contract owner. Reverts if `_interval` is outside the
+     *      protocol-defined minimum and maximum bounds.
+     *
+     * @param _interval New keeper execution interval, in seconds.
+     */
+    function setInterval(uint256 _interval) external onlyOwner {
+        if (
+            _interval >
+            UBKOracleConstants.ORACLE_MAX_CHAINLINK_KEEPER_INTERVAL ||
+            _interval < UBKOracleConstants.ORACLE_MIN_CHAINLINK_KEEPER_INTERVAL
+        ) {
+            revert InvalidThreshold(
+                "UBKOracleKeeper::setInterval",
+                msg.sender,
+                _interval
+            );
+        }
+        interval = _interval;
+    }
+
+    // -----------------------------------------------------------------------
+    // Public API
+    // -----------------------------------------------------------------------
+
     /**
      * @notice Checks whether upkeep should be performed.
      * @return upkeepNeeded True if the configured interval has elapsed since the last run.
@@ -71,33 +102,7 @@ contract UBKOracleKeeper is AutomationCompatibleInterface, Ownable {
      *
      */
     function performUpkeep(bytes calldata) external override {
-        if (block.timestamp < lastRun + interval) return;
-
-        lastRun = block.timestamp;
-        oracle.fetchAndUpdatePrice(oracle.getSupportedTokens());
-    }
-
-    /**
-     * @notice Updates the keeper execution interval.
-     *
-     * @dev Restricted to the contract owner. Reverts if `_interval` is outside the
-     *      protocol-defined minimum and maximum bounds.
-     *
-     * @param _interval New keeper execution interval, in seconds.
-     */
-    function setInterval(uint256 _interval) external onlyOwner {
-        if (
-            _interval >
-            UBKOracleConstants.ORACLE_MAX_CHAINLINK_KEEPER_INTERVAL ||
-            _interval < UBKOracleConstants.ORACLE_MIN_CHAINLINK_KEEPER_INTERVAL
-        ) {
-            revert InvalidThreshold(
-                "UBKOracleKeeper::setInterval",
-                msg.sender,
-                _interval
-            );
-        }
-        interval = _interval;
+        _run();
     }
 
     /**
@@ -111,6 +116,25 @@ contract UBKOracleKeeper is AutomationCompatibleInterface, Ownable {
      * supported tokens from the oracle and triggers a price update for them.
      */
     function run() external {
+        _run();
+    }
+
+    // -----------------------------------------------------------------------
+    // Internal helpers
+    // -----------------------------------------------------------------------
+
+    /**
+     * @notice Executes the shared oracle keeper logic.
+     *
+     * @dev Called by both `performUpkeep` and `run`.
+     *      If the configured interval has not elapsed, this function exits without
+     *      reverting. Otherwise, it updates `lastRun` before calling the oracle to
+     *      reduce the risk of repeated execution during the same eligible window.
+     *
+     * Fetches the currently supported tokens from the oracle and triggers a price
+     * update for those tokens.
+     */
+    function _run() internal {
         if (block.timestamp < lastRun + interval) return;
 
         lastRun = block.timestamp;
