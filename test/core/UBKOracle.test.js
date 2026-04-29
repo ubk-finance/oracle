@@ -2,49 +2,22 @@ const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { anyValue } = require("@nomicfoundation/hardhat-chai-matchers/withArgs");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
+const { fixture } = require("../helpers/fixture");
 
-let deployer, user, oracle, usdc, dai, sdai, feedUSDC, feedWBTC, feedDAI, wbtc, MockERC20, Mock4626, MockAggregator;
-const DAY = 24 * 60 * 60;
+let deployer, user, oracle, usdc, dai, sdai, feedUSDC, feedWBTC, feedDAI, wbtc, MockERC20, Mock4626, MockAggregator, DAY;
 
-async function setup() {
-  const Oracle = await ethers.getContractFactory("UBKOracle");
-  oracle = await Oracle.deploy(deployer.address);
 
-  // Mock ERC20 tokens
-  usdc = await MockERC20.deploy("USD Coin", "USDC", 6, ethers.parseUnits("1000000", 6));
-  dai = await MockERC20.deploy("DAI Stablecoin", "DAI", 18, ethers.parseUnits("1000000", 18));
-  wbtc = await MockERC20.deploy("WBTC", "WBTC", 8, ethers.parseUnits("1000000", 8));
-
-  feedUSDC = await MockAggregator.deploy(1e8, 8); // $1.00
-  feedDAI = await MockAggregator.deploy(1e8, 8); // $1.00
-  feedWBTC = await MockAggregator.deploy(25000e8, 8); // $25,000
-
-  // Mock ERC4626 oracle (sDAI)
-  const mockRate = ethers.parseUnits("1.02", 18); // simulate 2% yield
-  sdai = await Mock4626.deploy("Savings DAI", "sDAI", 18, ethers.parseUnits("1000000", 18), dai.target);
-  await sdai.setExchangeRate(mockRate);
-
-  // Mock Chainlink feed (8 decimals)
-  feed = await MockAggregator.deploy(1e8, 8); // $1.00
-
-  await oracle.setStalePeriod(usdc.target, DAY);
-  await oracle.setStalePeriod(dai.target, DAY);
-  await oracle.setStalePeriod(wbtc.target, DAY);
-  await oracle.setStalePeriod(sdai.target, DAY);
-
+function bindCtx(ctx) {
+  ({
+    deployer, user, oracle, usdc, dai,
+    sdai, feedUSDC, feedWBTC, feedDAI,
+    wbtc, MockERC20, Mock4626, MockAggregator, DAY
+  } = ctx);
 }
-
 describe("UBKOracle", function () {
-  before(async () => {
-    [deployer, user] = await ethers.getSigners();
-    MockERC20 = await ethers.getContractFactory("MockERC20");
-    Mock4626 = await ethers.getContractFactory("Mock4626");
-    MockAggregator = await ethers.getContractFactory("MockAggregatorV3");
-
-  });
-
   beforeEach(async () => {
-    await setup();
+    const ctx = await fixture();
+    bindCtx(ctx);
   });
 
   // --- Constructor ---
@@ -623,7 +596,8 @@ describe("UBKOracle", function () {
 
   describe("External API", function () {
     beforeEach(async () => {
-      await setup();
+      const ctx = await fixture();
+      bindCtx(ctx);
     });
 
     describe("fetchAndUpdatePrice()", function () {
@@ -856,7 +830,8 @@ describe("UBKOracle", function () {
 
     describe("Batch fetchAndUpdatePrice(address[])", function () {
       beforeEach(async () => {
-        await setup();
+        const ctx = await fixture();
+        bindCtx(ctx);
 
         // configure feeds
         await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
@@ -942,7 +917,9 @@ describe("UBKOracle", function () {
 
     describe("getPrice()", function () {
       beforeEach(async () => {
-        await setup();
+        const ctx = await fixture();
+        bindCtx(ctx);
+
         await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
         await oracle["fetchAndUpdatePrice(address)"](usdc.target);
       });
@@ -1087,7 +1064,9 @@ describe("UBKOracle", function () {
 
     describe("getPriceAge()", function () {
       beforeEach(async () => {
-        await setup();
+        const ctx = await fixture();
+        bindCtx(ctx);
+
         await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
       });
 
@@ -1117,7 +1096,9 @@ describe("UBKOracle", function () {
 
     describe("isPriceFresh()", function () {
       beforeEach(async () => {
-        await setup();
+        const ctx = await fixture();
+        bindCtx(ctx);
+
         await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
 
         // stalePeriod defaults to 1 day in your setup
@@ -1164,7 +1145,8 @@ describe("UBKOracle", function () {
 
     beforeEach(async () => {
       // reuse full oracle + token setup
-      await setup();
+      const ctx = await fixture();
+      bindCtx(ctx);
 
       const Keeper = await ethers.getContractFactory("UBKOracleKeeper");
       keeper = await Keeper.deploy(deployer.address, oracle.target);
@@ -1178,7 +1160,7 @@ describe("UBKOracle", function () {
         const [needed] = await keeper.checkUpkeep("0x"); // Must be true for a fresh keeper. 
 
         expect(await keeper.lastRun()).to.equal(0); // Init state.
-        expect(await keeper.interval()).to.equal(DAY/2); // Init state.
+        expect(await keeper.interval()).to.equal(DAY / 2); // Init state.
         expect(needed).to.equal(true); // Init state.
       });
     });
@@ -1264,8 +1246,8 @@ describe("UBKOracle", function () {
           expect(needed).to.equal(true); // Sanity check
           await expect(keeper.performUpkeep("0x"))
             .to.emit(keeper, "KeeperTaskFailed");
-            expect(await keeper.lastExecutionFailed()).to.equal(true); // Failure case confirmation.
-          });
+          expect(await keeper.lastExecutionFailed()).to.equal(true); // Failure case confirmation.
+        });
 
         it("allows for successful retries post oracle recovery", async () => {
           // create a failure state for the oracle and keeper first.
@@ -1274,12 +1256,12 @@ describe("UBKOracle", function () {
           expect(needed).to.equal(true); // Sanity check
           await expect(keeper.performUpkeep("0x"))
             .to.emit(keeper, "KeeperTaskFailed"); // Failure case.
-            expect(await keeper.lastExecutionFailed()).to.equal(true); // Failure case confirmation.
-        
+          expect(await keeper.lastExecutionFailed()).to.equal(true); // Failure case confirmation.
+
           // recover oracle
           await time.increase(await keeper.retryFactor() + 1n);
           await oracle.setOracleMode(0); // Move oracle back to NORMAL mode
-         
+
           await expect(keeper.performUpkeep("0x"))
             .to.emit(keeper, "KeeperTaskCompleted"); // Success case.
           expect(await keeper.lastRun()).to.be.gt(0); // Success case confirmation.
@@ -1308,8 +1290,8 @@ describe("UBKOracle", function () {
           expect(needed).to.equal(true); // Sanity check
           await expect(keeper.run())
             .to.emit(keeper, "KeeperTaskFailed");
-            expect(await keeper.lastExecutionFailed()).to.equal(true); // Failure case confirmation.
-          });
+          expect(await keeper.lastExecutionFailed()).to.equal(true); // Failure case confirmation.
+        });
 
         it("allows for successful retries post oracle recovery", async () => {
           // create a failure state for the oracle and keeper first.
@@ -1323,7 +1305,7 @@ describe("UBKOracle", function () {
           // recover oracle
           await time.increase(await keeper.retryFactor()); // 3 hours. Default backoff.
           await oracle.setOracleMode(0); // Move oracle back to NORMAL mode
-          
+
           await expect(keeper.run())
             .to.emit(keeper, "KeeperTaskCompleted"); // Success case.
           expect(await keeper.lastRun()).to.be.gt(0); // Success case confirmation.
