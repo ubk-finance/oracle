@@ -237,17 +237,6 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     }
 
     /**
-     * @notice Disables manual pricing for a token.
-     * @param token The token address.
-     */
-    function disableManualPrice(
-        address token
-    ) external onlyOwner supportedTokenOnly(token) {
-        isManual[token] = false;
-        emit ManualModeEnabled(token, false);
-    }
-
-    /**
      * @notice Registers a Chainlink price feed as the canonical oracle source for a token.
      *
      * @dev
@@ -321,6 +310,17 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
         erc4626Underlying[vault] = underlying;
         _addSupportedToken(vault);
         emit ERC4626Registered(vault, underlying);
+    }
+
+    /**
+     * @notice Disables manual pricing for a token.
+     * @param token The token address.
+     */
+    function disableManualPrice(
+        address token
+    ) external onlyOwner supportedTokenOnly(token) {
+        isManual[token] = false;
+        emit ManualModeEnabled(token, false);
     }
 
     /**
