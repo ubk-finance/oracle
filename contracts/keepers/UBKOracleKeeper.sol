@@ -100,7 +100,7 @@ contract UBKOracleKeeper is
             _retryFactor > interval // Retry factor MUST be lesser than interval.
         ) {
             revert InvalidThreshold(
-                "UBKOracleKeeper::setInterval",
+                "UBKOracleKeeper::setRetryFactor",
                 msg.sender,
                 _retryFactor
             );
