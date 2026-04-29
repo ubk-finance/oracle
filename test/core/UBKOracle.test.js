@@ -1174,6 +1174,12 @@ describe("UBKOracle", function () {
       it("sets owner and oracle correctly", async () => {
         expect(await keeper.owner()).to.equal(deployer.address);
         expect(await keeper.oracle()).to.equal(oracle.target);
+
+        const [needed] = await keeper.checkUpkeep("0x"); // Must be true for a fresh keeper. 
+
+        expect(await keeper.lastRun()).to.equal(0); // Init state.
+        expect(await keeper.interval()).to.equal(DAY/2); // Init state.
+        expect(needed).to.equal(true); // Init state.
       });
     });
 
