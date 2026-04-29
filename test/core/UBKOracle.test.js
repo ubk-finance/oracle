@@ -940,8 +940,6 @@ describe("UBKOracle", function () {
       });
     });
 
-
-
     describe("getPrice()", function () {
       beforeEach(async () => {
         await setup();
@@ -1161,40 +1159,43 @@ describe("UBKOracle", function () {
     });
   });
 
-  describe.only("UBKOracleKeeper", function () {
+  describe("Keeper", function () {
     let keeper;
-  
+
     beforeEach(async () => {
       // reuse full oracle + token setup
       await setup();
-  
+
       const Keeper = await ethers.getContractFactory("UBKOracleKeeper");
       keeper = await Keeper.deploy(deployer.address, oracle.target);
     });
-  
+
     describe("Constructor", function () {
       it("sets owner and oracle correctly", async () => {
         expect(await keeper.owner()).to.equal(deployer.address);
         expect(await keeper.oracle()).to.equal(oracle.target);
       });
     });
-  
+
     describe("Admin", function () {
       describe("setInterval()", function () {
         it("updates interval and emits event", async () => {
           const newInterval = DAY;
-  
+
           await expect(keeper.setInterval(newInterval))
             .to.emit(keeper, "KeeperIntervalUpdated");
-  
+
           expect(await keeper.interval()).to.equal(newInterval);
         });
-  
+
         it("reverts if interval outside bounds", async () => {
           await expect(keeper.setInterval(1))
             .to.be.revertedWithCustomError(keeper, "InvalidThreshold");
+
+          await expect(keeper.setInterval(DAY + 1))
+            .to.be.revertedWithCustomError(keeper, "InvalidThreshold");
         });
-  
+
         it("reverts if non-owner", async () => {
           await expect(
             keeper.connect(user).setInterval(DAY)
@@ -1202,7 +1203,7 @@ describe("UBKOracle", function () {
         });
       });
     });
-  
+
     describe("External API", function () {
       describe("checkUpkeep()", function () {
         it("returns true if no previous update", async () => {
@@ -1212,94 +1213,112 @@ describe("UBKOracle", function () {
           expect(lastRun).to.equal(0); // Default state. No successful runs before.
           expect(needed).to.equal(true); // Must run as (0 + 12 hrs(default interval)) < block.timestamp
         });
-  
+
         it("returns false immediately after update", async () => {
           const lastRunBefore = await keeper.lastRun(); // Must be 0
           await keeper.performUpkeep("0x"); // Run the upkeep function.
           const lastRunAfter = await keeper.lastRun(); // Must be > 0
-          
+
           expect(lastRunAfter - lastRunBefore).to.be.gt(0); // Verify diff > 0.
-          
+
           const [needed] = await keeper.checkUpkeep("0x");
           expect(needed).to.equal(false); // Default interval is 12 hours. Upkeep is not needed.
         });
 
         it("returns true after interval passes", async () => {
           const interval = await keeper.interval();
-          expect(interval).to.equal(DAY/2); // Must be 12 hours for default setting.
+          expect(interval).to.equal(DAY / 2); // Must be 12 hours for default setting.
 
-          await time.increase(DAY/2 + 1); // Increase time to beyond 12 hours.
+          await time.increase(DAY / 2 + 1); // Increase time to beyond 12 hours.
 
           const [needed] = await keeper.checkUpkeep("0x");
           expect(needed).to.equal(true);
         });
       });
-  
+
       describe("performUpkeep()", function () {
-        it("does nothing if upkeep not needed", async () => {
+        it("performs upkeep and emits events when checkUpkeep() returns true", async () => {
+          const [needed] = await keeper.checkUpkeep("0x"); // Will be true for fresh keeper.
+          expect(needed).to.equal(true); // Sanity check
           await expect(keeper.performUpkeep("0x"))
-            .to.not.emit(keeper, "KeeperTaskCompleted");
+            .to.emit(keeper, "KeeperTaskCompleted"); // Should emit event after performing upkeep duties.
         });
-  
+
         it("updates oracle prices when interval passes", async () => {
-          // register token + feed like your oracle tests
-          await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
-  
-          await time.increase(DAY);
-  
-          await expect(keeper.performUpkeep("0x"))
-            .to.emit(keeper, "KeeperTaskCompleted");
-  
+          await time.increase(DAY); // Fast forward time > owner set interval.
+          const [needed] = await keeper.checkUpkeep("0x"); // Must return true.
+          expect(needed).to.equal(true); // Sanity check
+          await expect(keeper.performUpkeep("0x")).to.emit(keeper, "KeeperTaskCompleted");
           expect(await keeper.lastRun()).to.be.gt(0);
         });
-  
+
         it("does not update lastRun if oracle fails", async () => {
-          await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
-  
-          // force failure via protocol behavior
-          await oracle.setOracleMode(1); // PAUSED
-  
-          await time.increase(DAY);
-  
+          await oracle.setOracleMode(1); // Set Oracle to PAUSED so that it reverts keeper.
+          const [needed] = await keeper.checkUpkeep("0x"); // Must return true.
+          expect(needed).to.equal(true); // Sanity check
           await expect(keeper.performUpkeep("0x"))
             .to.emit(keeper, "KeeperTaskFailed");
-  
-          expect(await keeper.lastRun()).to.equal(0);
+          expect(await keeper.lastRun()).to.equal(0); // Must remain 0 as keeper op failed
         });
-  
-        it("retries after failure once oracle recovers", async () => {
-          await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
-  
-          await oracle.setOracleMode(1); // fail
-  
-          await time.increase(DAY);
-          await keeper.performUpkeep("0x");
-  
-          expect(await keeper.lastRun()).to.equal(0);
-  
+
+        it("allows for successful retries post oracle recovery", async () => {
+          // create a failure state for the oracle and keeper first.
+          await oracle.setOracleMode(1);  // set to PAUSED. will revert requests to fetchAndUpdatePrice().
+          const [needed] = await keeper.checkUpkeep("0x"); // Must return true.
+          expect(needed).to.equal(true); // Sanity check
+          await expect(keeper.performUpkeep("0x"))
+            .to.emit(keeper, "KeeperTaskFailed"); // Failure case.
+          expect(await keeper.lastRun()).to.equal(0); // Failure case confirmation.
+
           // recover oracle
-          await oracle.setOracleMode(0);
-  
-          await keeper.performUpkeep("0x");
-  
-          expect(await keeper.lastRun()).to.be.gt(0);
+          await oracle.setOracleMode(0); // Move oracle back to NORMAL mode
+          await expect(keeper.performUpkeep("0x"))
+            .to.emit(keeper, "KeeperTaskCompleted"); // Success case.
+          expect(await keeper.lastRun()).to.be.gt(0); // Success case confirmation.
         });
       });
-  
+
       describe("run()", function () {
-        it("mirrors performUpkeep()", async () => {
-          await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
-  
-          await time.increase(DAY);
-  
+        it("performs upkeep and emits events when checkUpkeep() returns true", async () => {
+          const [needed] = await keeper.checkUpkeep("0x"); // Will be true for fresh keeper.
+          expect(needed).to.equal(true); // Sanity check
           await expect(keeper.run())
-            .to.emit(keeper, "KeeperTaskCompleted");
+            .to.emit(keeper, "KeeperTaskCompleted"); // Should emit event after performing upkeep duties.
+        });
+
+        it("updates oracle prices when interval passes", async () => {
+          await time.increase(DAY); // Fast forward time > owner set interval.
+          const [needed] = await keeper.checkUpkeep("0x"); // Must return true.
+          expect(needed).to.equal(true); // Sanity check
+          await expect(keeper.run()).to.emit(keeper, "KeeperTaskCompleted");
+          expect(await keeper.lastRun()).to.be.gt(0);
+        });
+
+        it("does not update lastRun if oracle fails", async () => {
+          await oracle.setOracleMode(1); // Set Oracle to PAUSED so that it reverts keeper.
+          const [needed] = await keeper.checkUpkeep("0x"); // Must return true.
+          expect(needed).to.equal(true); // Sanity check
+          await expect(keeper.run())
+            .to.emit(keeper, "KeeperTaskFailed");
+          expect(await keeper.lastRun()).to.equal(0); // Must remain 0 as keeper op failed
+        });
+
+        it("allows for successful retries post oracle recovery", async () => {
+          // create a failure state for the oracle and keeper first.
+          await oracle.setOracleMode(1);  // set to PAUSED. will revert requests to fetchAndUpdatePrice().
+          const [needed] = await keeper.checkUpkeep("0x"); // Must return true.
+          expect(needed).to.equal(true); // Sanity check
+          await expect(keeper.run())
+            .to.emit(keeper, "KeeperTaskFailed"); // Failure case.
+          expect(await keeper.lastRun()).to.equal(0); // Failure case confirmation.
+
+          // recover oracle
+          await oracle.setOracleMode(0); // Move oracle back to NORMAL mode
+          await expect(keeper.run())
+            .to.emit(keeper, "KeeperTaskCompleted"); // Success case.
+          expect(await keeper.lastRun()).to.be.gt(0); // Success case confirmation.
         });
       });
     });
   });
-})
-
-
-
-
+});
