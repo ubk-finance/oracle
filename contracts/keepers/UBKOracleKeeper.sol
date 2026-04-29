@@ -35,7 +35,7 @@ contract UBKOracleKeeper is
     uint256 public lastRun; // Initializes to 0.
     uint256 public interval = UBKOracleConstants.ORACLE_DEFAULT_KEEPER_INTERVAL; // Initializes to 12 hours.
 
-    uint256 public retryFactor = 1 hours; // Initialized retry factor
+    uint256 public retryFactor = UBKOracleConstants.ORACLE_MIN_KEEPER_INTERVAL; // Initialized retry factor to lower bound of keeper interval.
     bool public lastExecutionFailed; // Initializes to false
 
     /**
@@ -82,6 +82,36 @@ contract UBKOracleKeeper is
 
         // Emit event for observability.
         emit KeeperIntervalUpdated(oldInterval, interval);
+    }
+
+    /**
+     * @notice Updates the keeper retry interval when run() or performUpkeep() fail, and the lastExecutionFailed flag is set to true.
+     *
+     * @dev Restricted to the contract owner. Reverts if `_retryFactor` is outside the
+     *      protocol-defined minimum and maximum bounds for keeper intervals, as well as if the retryFactor is larger than the regular interval.
+     *
+     * @param _retryFactor New keeper retry factor, in seconds.
+     */
+    function setRetryFactor(uint256 _retryFactor) external onlyOwner {
+        // Validate _interval first.
+        if (
+            _retryFactor > UBKOracleConstants.ORACLE_MAX_KEEPER_INTERVAL ||
+            _retryFactor < UBKOracleConstants.ORACLE_MIN_KEEPER_INTERVAL ||
+            _retryFactor > interval // Retry factor MUST be lesser than interval.
+        ) {
+            revert InvalidThreshold(
+                "UBKOracleKeeper::setInterval",
+                msg.sender,
+                _retryFactor
+            );
+        }
+
+        // Update state.
+        uint256 oldRetryFactor = retryFactor;
+        retryFactor = _retryFactor;
+
+        // Emit event for observability.
+        emit KeeperRetryFactorUpdated(oldRetryFactor, retryFactor);
     }
 
     // -----------------------------------------------------------------------
