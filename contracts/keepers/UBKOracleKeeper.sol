@@ -228,7 +228,7 @@ contract UBKOracleKeeper is
     function _run() internal {
         if (!_checkUpkeep()) return;
 
-        lastRun = block.timestamp; // Update the lastRun timestamp
+        lastRun = block.timestamp; // Update the lastRun timestamp regardless of execution success or failure.
 
         try oracle.fetchAndUpdatePrice(oracle.getSupportedTokens()) {
             lastExecutionFailed = false; // Mark success
