@@ -35,7 +35,7 @@ contract UBKOracleKeeper is
     uint256 public lastRun; // Initializes to 0.
     uint256 public interval = UBKOracleConstants.ORACLE_DEFAULT_KEEPER_INTERVAL; // Initializes to 12 hours.
 
-    uint256 public retryFactor = UBKOracleConstants.ORACLE_MIN_KEEPER_INTERVAL; // Initialized retry factor to lower bound of keeper interval.
+    uint256 public retryFactor = UBKOracleConstants.ORACLE_MIN_KEEPER_INTERVAL; // Initializes retry factor to lower bound of keeper interval.
     bool public lastExecutionFailed; // Initializes to false
 
     /**
