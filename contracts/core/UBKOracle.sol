@@ -126,7 +126,7 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     }
 
     // -----------------------------------------------------------------------
-    // Admin / Configuration
+    // Admin / Configuration - Availability Control Plane
     // -----------------------------------------------------------------------
 
     /**
@@ -139,102 +139,9 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
         emit OracleModeChanged(oldMode, newMode);
     }
 
-    /**
-     * @notice External facing admin function that sets the maximum time (in seconds) a Chainlink feed value is valid.
-     * @param period The new fallback staleness threshold. Must be 1.5x of stalePeriod of the same token.
-     */
-    function setStalePeriod(address token, uint256 period) external onlyOwner {
-        _setStalePeriod(token, period);
-    }
-
-    /**
-     * @notice Sets the fallback staleness tolerance for lastValidPrice().
-     * @param period Maximum allowed seconds for fallback validity.
-     * @dev Must be ≥ stalePeriod to remain meaningful.
-     */
-    function setFallbackStalePeriod(
-        address token,
-        uint256 period
-    ) external onlyOwner {
-        uint256 stalePeriodToken = stalePeriod[token]; // Default stale period of token.
-        uint256 maxFallbackPeriod = stalePeriodToken *
-            UBKOracleConstants.ORACLE_MAX_STALE_FALLBACK_MULTIPLIER; // The absolute maximum fallback stale period allowed. (3x)
-        if (period < stalePeriodToken || period > maxFallbackPeriod)
-            revert InvalidStalePeriod(period);
-        fallbackStalePeriod[token] = period;
-        emit FallbackStalePeriodUpdated(token, period);
-    }
-
-    /**
-     * @notice Configures acceptable min/max conversion rates for a specific ERC4626 vault.
-     * @param vault ERC4626 vault token address.
-     * @param minRate Minimum acceptable rate (e.g., 0.2e18 = 0.2x).
-     * @param maxRate Maximum acceptable rate (e.g., 3e18 = 3x).
-     * @dev Prevents mispriced vaults or flash-manipulated convertToAssets().
-     */
-    function setVaultRateBounds(
-        address vault,
-        uint256 minRate,
-        uint256 maxRate
-    ) external onlyOwner {
-        if (vault == address(0))
-            revert ZeroAddress("UBKOracle::setVaultRateBounds", "vault");
-        if (
-            minRate == 0 ||
-            maxRate <= minRate ||
-            maxRate > UBKOracleConstants.ORACLE_MAX_VAULT_RATE_WAD
-        ) revert InvalidVaultBounds(vault, minRate, maxRate);
-
-        vaultRateBounds[vault] = VaultRateBounds(minRate, maxRate);
-        emit VaultRateBoundsSet(vault, minRate, maxRate);
-    }
-
-    /**
-     * @notice Manually sets a price for a token, bounded by ±10% of last valid.
-     * @param token Token address.
-     * @param price Manual price in 1e18 precision.
-     * @dev Enforces bounds if a valid recent price (< stalePeriod) exists.
-     *      Enables manual mode until disabled.
-     */
-    function setManualPrice(
-        address token,
-        uint256 price
-    ) external onlyOwner whenNotPaused {
-        if (token == address(0))
-            revert ZeroAddress("UBKOracle::setManualPrice", "token");
-        if (!isSupported[token]) {
-            _addSupportedToken(token);
-        }
-
-        if (
-            price < UBKOracleConstants.ORACLE_MIN_ABSOLUTE_PRICE_WAD ||
-            price > UBKOracleConstants.ORACLE_MAX_ABSOLUTE_PRICE_WAD
-        ) revert InvalidManualPrice(token, price);
-
-        LastValidPrice memory lv = lastValidPrice[token];
-        if (
-            lv.price > 0 && block.timestamp - lv.timestamp <= stalePeriod[token]
-        ) {
-            uint256 lowerBound = (lv.price *
-                (UBKOracleConstants.WAD -
-                    UBKOracleConstants.ORACLE_MANUAL_PRICE_MAX_DELTA_WAD)) /
-                UBKOracleConstants.WAD;
-            uint256 upperBound = (lv.price *
-                (UBKOracleConstants.WAD +
-                    UBKOracleConstants.ORACLE_MANUAL_PRICE_MAX_DELTA_WAD)) /
-                UBKOracleConstants.WAD;
-            if (price < lowerBound || price > upperBound)
-                revert InvalidManualPrice(token, price);
-        }
-
-        manualPrices[token] = price;
-        isManual[token] = true;
-        lastValidPrice[token] = LastValidPrice(price, block.timestamp);
-
-        emit ManualPriceSet(token, price);
-        emit ManualModeEnabled(token, true);
-        emit LastValidPriceUpdated(token, price, block.timestamp);
-    }
+    // -----------------------------------------------------------------------
+    // Admin / Configuration - Pricing Control Plane
+    // -----------------------------------------------------------------------
 
     /**
      * @notice Registers a Chainlink price feed as the canonical oracle source for a token.
@@ -297,6 +204,53 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     }
 
     /**
+     * @notice Manually sets a price for a token, bounded by ±10% of last valid.
+     * @param token Token address.
+     * @param price Manual price in 1e18 precision.
+     * @dev Enforces bounds if a valid recent price (< stalePeriod) exists.
+     *      Enables manual mode until disabled.
+     */
+    function setManualPrice(
+        address token,
+        uint256 price
+    ) external onlyOwner whenNotPaused {
+        if (token == address(0))
+            revert ZeroAddress("UBKOracle::setManualPrice", "token");
+        if (!isSupported[token]) {
+            _addSupportedToken(token);
+        }
+
+        if (
+            price < UBKOracleConstants.ORACLE_MIN_ABSOLUTE_PRICE_WAD ||
+            price > UBKOracleConstants.ORACLE_MAX_ABSOLUTE_PRICE_WAD
+        ) revert InvalidManualPrice(token, price);
+
+        LastValidPrice memory lv = lastValidPrice[token];
+        if (
+            lv.price > 0 && block.timestamp - lv.timestamp <= stalePeriod[token]
+        ) {
+            uint256 lowerBound = (lv.price *
+                (UBKOracleConstants.WAD -
+                    UBKOracleConstants.ORACLE_MANUAL_PRICE_MAX_DELTA_WAD)) /
+                UBKOracleConstants.WAD;
+            uint256 upperBound = (lv.price *
+                (UBKOracleConstants.WAD +
+                    UBKOracleConstants.ORACLE_MANUAL_PRICE_MAX_DELTA_WAD)) /
+                UBKOracleConstants.WAD;
+            if (price < lowerBound || price > upperBound)
+                revert InvalidManualPrice(token, price);
+        }
+
+        manualPrices[token] = price;
+        isManual[token] = true;
+        lastValidPrice[token] = LastValidPrice(price, block.timestamp);
+
+        emit ManualPriceSet(token, price);
+        emit ManualModeEnabled(token, true);
+        emit LastValidPriceUpdated(token, price, block.timestamp);
+    }
+
+    /**
      * @notice Registers an ERC4626 vault and its underlying asset.
      * @param vault ERC4626 vault token.
      * @param underlying Reference underlying asset used for pricing.
@@ -313,6 +267,30 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     }
 
     /**
+     * @notice Configures acceptable min/max conversion rates for a specific ERC4626 vault.
+     * @param vault ERC4626 vault token address.
+     * @param minRate Minimum acceptable rate (e.g., 0.2e18 = 0.2x).
+     * @param maxRate Maximum acceptable rate (e.g., 3e18 = 3x).
+     * @dev Prevents mispriced vaults or flash-manipulated convertToAssets().
+     */
+    function setVaultRateBounds(
+        address vault,
+        uint256 minRate,
+        uint256 maxRate
+    ) external onlyOwner {
+        if (vault == address(0))
+            revert ZeroAddress("UBKOracle::setVaultRateBounds", "vault");
+        if (
+            minRate == 0 ||
+            maxRate <= minRate ||
+            maxRate > UBKOracleConstants.ORACLE_MAX_VAULT_RATE_WAD
+        ) revert InvalidVaultBounds(vault, minRate, maxRate);
+
+        vaultRateBounds[vault] = VaultRateBounds(minRate, maxRate);
+        emit VaultRateBoundsSet(vault, minRate, maxRate);
+    }
+
+    /**
      * @notice Disables manual pricing for a token.
      * @param token The token address.
      */
@@ -321,6 +299,36 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
     ) external onlyOwner supportedTokenOnly(token) {
         isManual[token] = false;
         emit ManualModeEnabled(token, false);
+    }
+
+    // -----------------------------------------------------------------------
+    // Admin / Configuration - Asset Specific Control Plane
+    // -----------------------------------------------------------------------
+
+    /**
+     * @notice External facing admin function that sets the maximum time (in seconds) a Chainlink feed value is valid.
+     * @param period The new fallback staleness threshold. Must be 1.5x of stalePeriod of the same token.
+     */
+    function setStalePeriod(address token, uint256 period) external onlyOwner {
+        _setStalePeriod(token, period);
+    }
+
+    /**
+     * @notice Sets the fallback staleness tolerance for lastValidPrice().
+     * @param period Maximum allowed seconds for fallback validity.
+     * @dev Must be ≥ stalePeriod to remain meaningful.
+     */
+    function setFallbackStalePeriod(
+        address token,
+        uint256 period
+    ) external onlyOwner {
+        uint256 stalePeriodToken = stalePeriod[token]; // Default stale period of token.
+        uint256 maxFallbackPeriod = stalePeriodToken *
+            UBKOracleConstants.ORACLE_MAX_STALE_FALLBACK_MULTIPLIER; // The absolute maximum fallback stale period allowed. (3x)
+        if (period < stalePeriodToken || period > maxFallbackPeriod)
+            revert InvalidStalePeriod(period);
+        fallbackStalePeriod[token] = period;
+        emit FallbackStalePeriodUpdated(token, period);
     }
 
     /**

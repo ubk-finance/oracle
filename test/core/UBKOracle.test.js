@@ -57,668 +57,673 @@ describe("UBKOracle", function () {
   });
 
   describe("Admin", function () {
-    // --- setChainlinkFeed ---
-    describe("setChainlinkFeed", function () {
-      it("should allow owner to set feed", async () => {
-        await expect(oracle.connect(deployer).setChainlinkFeed(usdc.target, feed.target))
-          .to.emit(oracle, "ChainlinkFeedSet")
-          .withArgs(usdc.target, feed.target);
+    describe("Pricing Control Plane", function () {
+      describe("setChainlinkFeed", function () {
+        it("should allow owner to set feed", async () => {
+          await expect(oracle.connect(deployer).setChainlinkFeed(usdc.target, feed.target))
+            .to.emit(oracle, "ChainlinkFeedSet")
+            .withArgs(usdc.target, feed.target);
 
-        expect(await oracle.chainlinkFeeds(usdc.target)).to.equal(feed.target);
+          expect(await oracle.chainlinkFeeds(usdc.target)).to.equal(feed.target);
+        });
+
+        it("should reset manual mode when feed is set", async () => {
+          await oracle.setManualPrice(usdc.target, ethers.parseUnits("2", 18));
+          expect(await oracle.isManual(usdc.target)).to.be.true;
+
+          await oracle.setChainlinkFeed(usdc.target, feed.target);
+          expect(await oracle.isManual(usdc.target)).to.be.false;
+        });
+
+        it("should emit TokenSupportAdded and register token in supportedTokens", async () => {
+          const tx = await oracle.setChainlinkFeed(usdc.target, feed.target);
+
+          await expect(tx)
+            .to.emit(oracle, "TokenSupportAdded")
+            .withArgs(usdc.target);
+
+          // mapping should reflect support
+          expect(await oracle.isSupported(usdc.target)).to.be.true;
+
+          // array should include token
+          const tokens = await oracle.getSupportedTokens();
+          expect(tokens).to.include(usdc.target);
+        });
+
+        it("should not emit TokenSupportAdded again for the same token", async () => {
+          await oracle.setChainlinkFeed(usdc.target, feed.target); // first registration
+          const tx = await oracle.setChainlinkFeed(usdc.target, feed.target);  // second registration
+
+          // no new TokenSupportAdded event
+          await expect(tx).to.not.emit(oracle, "TokenSupportAdded");
+
+          // array length should remain 1
+          const tokens = await oracle.getSupportedTokens();
+          expect(tokens.length).to.equal(1);
+          expect(tokens[0]).to.equal(usdc.target);
+        });
+
+        it("should revert if token is zero", async () => {
+          await expect(oracle.setChainlinkFeed(ethers.ZeroAddress, feed.target))
+            .to.be.revertedWithCustomError(oracle, "ZeroAddress");
+        });
+
+        it("should revert if feed is zero", async () => {
+          await expect(oracle.setChainlinkFeed(usdc.target, ethers.ZeroAddress))
+            .to.be.revertedWithCustomError(oracle, "ZeroAddress");
+        });
+
+        it("should not allow non-owner to set feed", async () => {
+          await expect(oracle.connect(user).setChainlinkFeed(usdc.target, feed.target))
+            .to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount");
+        });
+
+        it("reverts if feed decimals > 18", async () => {
+          const BadFeed = await ethers.getContractFactory("MockAggregatorV3");
+          const badFeed = await BadFeed.deploy(1e8, 19); // 19 decimals → invalid
+
+          await expect(
+            oracle.setChainlinkFeed(usdc.target, badFeed.target)
+          ).to.be.revertedWithCustomError(oracle, "InvalidFeedDecimals");
+        });
+
+        it("treats a negative Chainlink answer as invalid and falls back", async () => {
+          // 1. Seed oracle with a valid cached price
+          await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
+          await oracle["fetchAndUpdatePrice(address)"](usdc.target);
+          const cached = await oracle.getPrice(usdc.target);
+
+          // 2. Make Chainlink return a negative answer
+          await feedUSDC.updateAnswer(-100_000_000); // e.g. -1.0 * 1e8
+
+          // 3. fetchAndUpdatePrice() should fall back to cached value
+          await expect(oracle["fetchAndUpdatePrice(address)"](usdc.target))
+            .to.emit(oracle, "OracleFallbackUsed")
+            .withArgs(usdc.target, cached, anyValue, "Chainlink failure");
+
+          // 4. Ensure cached value remains in place
+          const finalPrice = await oracle.getPrice(usdc.target);
+          expect(finalPrice).to.equal(cached);
+        });
+
+        it("reverts if feed has no code (EOA)", async () => {
+          await expect(
+            oracle.setChainlinkFeed(usdc.target, deployer.address)
+          ).to.be.revertedWithCustomError(oracle, "InvalidFeedContract");
+        });
+
+        it("reverts if token decimals < MIN_DECIMALS", async () => {
+          const BadToken = await MockERC20.deploy(
+            "Bad",
+            "BAD",
+            3, // below 6
+            1n
+          );
+
+          await expect(
+            oracle.setChainlinkFeed(BadToken.target, feed.target)
+          ).to.be.reverted;
+        });
       });
 
-      it("should reset manual mode when feed is set", async () => {
-        await oracle.setManualPrice(usdc.target, ethers.parseUnits("2", 18));
-        expect(await oracle.isManual(usdc.target)).to.be.true;
+      describe("setERC4626Vault", function () {
+        it("should register oracle and underlying", async () => {
+          await expect(oracle.setERC4626Vault(sdai.target, dai.target))
+            .to.emit(oracle, "ERC4626Registered")
+            .withArgs(sdai.target, dai.target);
 
-        await oracle.setChainlinkFeed(usdc.target, feed.target);
-        expect(await oracle.isManual(usdc.target)).to.be.false;
+          expect(await oracle.erc4626Underlying(sdai.target)).to.equal(dai.target);
+        });
+
+        it("should emit TokenSupportAdded and update mappings", async () => {
+          const tx = await oracle.setERC4626Vault(sdai.target, dai.target);
+
+          await expect(tx)
+            .to.emit(oracle, "TokenSupportAdded")
+            .withArgs(sdai.target);
+
+          // mapping should reflect token support
+          expect(await oracle.isSupported(sdai.target)).to.be.true;
+
+          // array should include the new token
+          const tokens = await oracle.getSupportedTokens();
+          expect(tokens).to.include(sdai.target);
+        });
+
+        it("should not emit TokenSupportAdded twice for same oracle", async () => {
+          await oracle.setERC4626Vault(sdai.target, dai.target);
+          const tx = await oracle.setERC4626Vault(sdai.target, dai.target);
+
+          await expect(tx).to.not.emit(oracle, "TokenSupportAdded");
+
+          const tokens = await oracle.getSupportedTokens();
+          expect(tokens.length).to.equal(1);
+          expect(tokens[0]).to.equal(sdai.target);
+        });
+
+        it("should revert if oracle is zero", async () => {
+          await expect(oracle.setERC4626Vault(ethers.ZeroAddress, dai.target))
+            .to.be.revertedWithCustomError(oracle, "ZeroAddress");
+        });
+
+        it("should revert if underlying is zero", async () => {
+          await expect(oracle.setERC4626Vault(sdai.target, ethers.ZeroAddress))
+            .to.be.revertedWithCustomError(oracle, "ZeroAddress");
+        });
+
+        it("should revert if oracle is not a valid ERC4626 contract", async () => {
+          // deploy a contract that does NOT implement asset()
+          const Invalidoracle = await ethers.getContractFactory("MockERC20");
+          const badoracle = await Invalidoracle.deploy(
+            "Fakeoracle",
+            "FV",
+            18,
+            ethers.parseUnits("1000000", 18)
+          );
+
+          // calling setERC4626Vault should revert
+          await expect(
+            oracle.setERC4626Vault(badoracle.target, dai.target)
+          ).to.be.revertedWithCustomError(oracle, "InvalidERC4626Vault");
+        });
+
+        it("should not allow non-owner to call", async () => {
+          await expect(oracle.connect(user).setERC4626Vault(sdai.target, dai.target))
+            .to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount");
+        });
+
+        it("reverts with SuspiciousVaultRate when rate < default min bound", async () => {
+          await oracle.setERC4626Vault(sdai.target, dai.target);
+          await oracle.setChainlinkFeed(dai.target, feedDAI.target);
+
+          // force convertToAssets to return 0 → invalid
+          await sdai.setExchangeRate(0);
+
+          await expect(
+            oracle["fetchAndUpdatePrice(address)"](sdai.target)
+          ).to.be.revertedWithCustomError(oracle, "InvalidVaultExchangeRate");
+        });
+
+        it("reverts with SuspiciousVaultRate when rate > max bound", async () => {
+          await oracle.setERC4626Vault(sdai.target, dai.target);
+          await oracle.setChainlinkFeed(dai.target, feedDAI.target);
+
+          // artificially huge exchange rate
+          await sdai.setExchangeRate(ethers.parseUnits("1000", 18)); // insane APY
+
+          await expect(
+            oracle["fetchAndUpdatePrice(address)"](sdai.target)
+          ).to.be.revertedWithCustomError(oracle, "SuspiciousVaultRate");
+        });
+
+        it("reverts if vault and underlying decimals mismatch", async () => {
+          const dai6 = await MockERC20.deploy("DAI6", "DAI6", 6, 1n);
+          const badVault = await Mock4626.deploy(
+            "BadVault",
+            "BV",
+            18,
+            1n,
+            dai6.target
+          );
+
+          await expect(
+            oracle.setERC4626Vault(badVault.target, dai6.target)
+          ).to.be.revertedWithCustomError(oracle, "ERC4626DecimalsMismatch");
+        });
+
       });
 
-      it("should emit TokenSupportAdded and register token in supportedTokens", async () => {
-        const tx = await oracle.setChainlinkFeed(usdc.target, feed.target);
+      describe("setManualPrice()", function () {
+        it("should allow owner to set a manual price", async () => {
+          const manualPrice = ethers.parseUnits("2", 18);
 
-        await expect(tx)
-          .to.emit(oracle, "TokenSupportAdded")
-          .withArgs(usdc.target);
+          await expect(oracle.setManualPrice(usdc.target, manualPrice))
+            .to.emit(oracle, "ManualPriceSet")
+            .withArgs(usdc.target, manualPrice);
 
-        // mapping should reflect support
-        expect(await oracle.isSupported(usdc.target)).to.be.true;
-
-        // array should include token
-        const tokens = await oracle.getSupportedTokens();
-        expect(tokens).to.include(usdc.target);
-      });
-
-      it("should not emit TokenSupportAdded again for the same token", async () => {
-        await oracle.setChainlinkFeed(usdc.target, feed.target); // first registration
-        const tx = await oracle.setChainlinkFeed(usdc.target, feed.target);  // second registration
-
-        // no new TokenSupportAdded event
-        await expect(tx).to.not.emit(oracle, "TokenSupportAdded");
-
-        // array length should remain 1
-        const tokens = await oracle.getSupportedTokens();
-        expect(tokens.length).to.equal(1);
-        expect(tokens[0]).to.equal(usdc.target);
-      });
-
-      it("should revert if token is zero", async () => {
-        await expect(oracle.setChainlinkFeed(ethers.ZeroAddress, feed.target))
-          .to.be.revertedWithCustomError(oracle, "ZeroAddress");
-      });
-
-      it("should revert if feed is zero", async () => {
-        await expect(oracle.setChainlinkFeed(usdc.target, ethers.ZeroAddress))
-          .to.be.revertedWithCustomError(oracle, "ZeroAddress");
-      });
-
-      it("should not allow non-owner to set feed", async () => {
-        await expect(oracle.connect(user).setChainlinkFeed(usdc.target, feed.target))
-          .to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount");
-      });
-
-      it("reverts if feed decimals > 18", async () => {
-        const BadFeed = await ethers.getContractFactory("MockAggregatorV3");
-        const badFeed = await BadFeed.deploy(1e8, 19); // 19 decimals → invalid
-
-        await expect(
-          oracle.setChainlinkFeed(usdc.target, badFeed.target)
-        ).to.be.revertedWithCustomError(oracle, "InvalidFeedDecimals");
-      });
-
-      it("treats a negative Chainlink answer as invalid and falls back", async () => {
-        // 1. Seed oracle with a valid cached price
-        await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
-        await oracle["fetchAndUpdatePrice(address)"](usdc.target);
-        const cached = await oracle.getPrice(usdc.target);
-
-        // 2. Make Chainlink return a negative answer
-        await feedUSDC.updateAnswer(-100_000_000); // e.g. -1.0 * 1e8
-
-        // 3. fetchAndUpdatePrice() should fall back to cached value
-        await expect(oracle["fetchAndUpdatePrice(address)"](usdc.target))
-          .to.emit(oracle, "OracleFallbackUsed")
-          .withArgs(usdc.target, cached, anyValue, "Chainlink failure");
-
-        // 4. Ensure cached value remains in place
-        const finalPrice = await oracle.getPrice(usdc.target);
-        expect(finalPrice).to.equal(cached);
-      });
-
-      it("reverts if feed has no code (EOA)", async () => {
-        await expect(
-          oracle.setChainlinkFeed(usdc.target, deployer.address)
-        ).to.be.revertedWithCustomError(oracle, "InvalidFeedContract");
-      });
-
-      it("reverts if token decimals < MIN_DECIMALS", async () => {
-        const BadToken = await MockERC20.deploy(
-          "Bad",
-          "BAD",
-          3, // below 6
-          1n
-        );
-
-        await expect(
-          oracle.setChainlinkFeed(BadToken.target, feed.target)
-        ).to.be.reverted;
-      });
-    });
-
-    // --- setERC4626Vault ---
-    describe("setERC4626Vault", function () {
-      it("should register oracle and underlying", async () => {
-        await expect(oracle.setERC4626Vault(sdai.target, dai.target))
-          .to.emit(oracle, "ERC4626Registered")
-          .withArgs(sdai.target, dai.target);
-
-        expect(await oracle.erc4626Underlying(sdai.target)).to.equal(dai.target);
-      });
-
-      it("should emit TokenSupportAdded and update mappings", async () => {
-        const tx = await oracle.setERC4626Vault(sdai.target, dai.target);
-
-        await expect(tx)
-          .to.emit(oracle, "TokenSupportAdded")
-          .withArgs(sdai.target);
-
-        // mapping should reflect token support
-        expect(await oracle.isSupported(sdai.target)).to.be.true;
-
-        // array should include the new token
-        const tokens = await oracle.getSupportedTokens();
-        expect(tokens).to.include(sdai.target);
-      });
-
-      it("should not emit TokenSupportAdded twice for same oracle", async () => {
-        await oracle.setERC4626Vault(sdai.target, dai.target);
-        const tx = await oracle.setERC4626Vault(sdai.target, dai.target);
-
-        await expect(tx).to.not.emit(oracle, "TokenSupportAdded");
-
-        const tokens = await oracle.getSupportedTokens();
-        expect(tokens.length).to.equal(1);
-        expect(tokens[0]).to.equal(sdai.target);
-      });
-
-      it("should revert if oracle is zero", async () => {
-        await expect(oracle.setERC4626Vault(ethers.ZeroAddress, dai.target))
-          .to.be.revertedWithCustomError(oracle, "ZeroAddress");
-      });
-
-      it("should revert if underlying is zero", async () => {
-        await expect(oracle.setERC4626Vault(sdai.target, ethers.ZeroAddress))
-          .to.be.revertedWithCustomError(oracle, "ZeroAddress");
-      });
-
-      it("should revert if oracle is not a valid ERC4626 contract", async () => {
-        // deploy a contract that does NOT implement asset()
-        const Invalidoracle = await ethers.getContractFactory("MockERC20");
-        const badoracle = await Invalidoracle.deploy(
-          "Fakeoracle",
-          "FV",
-          18,
-          ethers.parseUnits("1000000", 18)
-        );
-
-        // calling setERC4626Vault should revert
-        await expect(
-          oracle.setERC4626Vault(badoracle.target, dai.target)
-        ).to.be.revertedWithCustomError(oracle, "InvalidERC4626Vault");
-      });
-
-      it("should not allow non-owner to call", async () => {
-        await expect(oracle.connect(user).setERC4626Vault(sdai.target, dai.target))
-          .to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount");
-      });
-
-      it("reverts with SuspiciousVaultRate when rate < default min bound", async () => {
-        await oracle.setERC4626Vault(sdai.target, dai.target);
-        await oracle.setChainlinkFeed(dai.target, feedDAI.target);
-
-        // force convertToAssets to return 0 → invalid
-        await sdai.setExchangeRate(0);
-
-        await expect(
-          oracle["fetchAndUpdatePrice(address)"](sdai.target)
-        ).to.be.revertedWithCustomError(oracle, "InvalidVaultExchangeRate");
-      });
-
-      it("reverts with SuspiciousVaultRate when rate > max bound", async () => {
-        await oracle.setERC4626Vault(sdai.target, dai.target);
-        await oracle.setChainlinkFeed(dai.target, feedDAI.target);
-
-        // artificially huge exchange rate
-        await sdai.setExchangeRate(ethers.parseUnits("1000", 18)); // insane APY
-
-        await expect(
-          oracle["fetchAndUpdatePrice(address)"](sdai.target)
-        ).to.be.revertedWithCustomError(oracle, "SuspiciousVaultRate");
-      });
-
-      it("reverts if vault and underlying decimals mismatch", async () => {
-        const dai6 = await MockERC20.deploy("DAI6", "DAI6", 6, 1n);
-        const badVault = await Mock4626.deploy(
-          "BadVault",
-          "BV",
-          18,
-          1n,
-          dai6.target
-        );
-
-        await expect(
-          oracle.setERC4626Vault(badVault.target, dai6.target)
-        ).to.be.revertedWithCustomError(oracle, "ERC4626DecimalsMismatch");
-      });
-
-    });
-
-    describe("setManualPrice()", function () {
-      it("should allow owner to set a manual price", async () => {
-        const manualPrice = ethers.parseUnits("2", 18);
-
-        await expect(oracle.setManualPrice(usdc.target, manualPrice))
-          .to.emit(oracle, "ManualPriceSet")
-          .withArgs(usdc.target, manualPrice);
-
-        expect(await oracle.manualPrices(usdc.target)).to.equal(manualPrice);
-        expect(await oracle.isManual(usdc.target)).to.be.true;
-      });
-
-      it("should emit ManualModeEnabled when enabling manual price mode", async () => {
-        const manualPrice = ethers.parseUnits("5", 18);
-
-        await expect(oracle.setManualPrice(usdc.target, manualPrice))
-          .to.emit(oracle, "ManualModeEnabled")
-          .withArgs(usdc.target, true);
-      });
-
-      it("should revert if token address is zero", async () => {
-        await expect(
-          oracle.setManualPrice(ethers.ZeroAddress, ethers.parseUnits("1", 18))
-        ).to.be.revertedWithCustomError(oracle, "ZeroAddress");
-      });
-
-      it("should revert if price is zero", async () => {
-        await expect(
-          oracle.setManualPrice(usdc.target, 0)
-        ).to.be.revertedWithCustomError(oracle, "InvalidManualPrice");
-      });
-
-      it("should overwrite existing manual price when called again", async () => {
-        const firstPrice = ethers.parseUnits("1", 18);
-        const newPrice = ethers.parseUnits("1.10", 18);
-
-        await oracle.setManualPrice(usdc.target, firstPrice);
-        await oracle.setManualPrice(usdc.target, newPrice);
-
-        expect(await oracle.manualPrices(usdc.target)).to.equal(newPrice);
-      });
-
-      it("should revert if manual price deviates >10% from last valid price", async () => {
-        await oracle.setChainlinkFeed(usdc.target, feed.target);
-        await oracle["fetchAndUpdatePrice(address)"](usdc.target); // establishes baseline = $1
-        const invalidHigh = ethers.parseUnits("1.20", 18); // +20%
-        await expect(oracle.setManualPrice(usdc.target, invalidHigh))
-          .to.be.revertedWithCustomError(oracle, "InvalidManualPrice");
-      });
-
-      it("should disable manual mode and emit event", async () => {
-        await oracle.setManualPrice(usdc.target, ethers.parseUnits("2", 18));
-        await expect(oracle.disableManualPrice(usdc.target))
-          .to.emit(oracle, "ManualModeEnabled")
-          .withArgs(usdc.target, false);
-        expect(await oracle.isManual(usdc.target)).to.be.false;
-      });
-
-      describe("disableManualPrice()", function () {
-        beforeEach(async () => {
-          // Ensure manual mode is active before disabling
-          await oracle.setManualPrice(usdc.target, ethers.parseUnits("1.00", 18));
+          expect(await oracle.manualPrices(usdc.target)).to.equal(manualPrice);
           expect(await oracle.isManual(usdc.target)).to.be.true;
         });
 
-        it("should allow owner to disable manual mode", async () => {
-          await expect(oracle.disableManualPrice(usdc.target))
-            .to.emit(oracle, "ManualModeEnabled")
-            .withArgs(usdc.target, false);
+        it("should emit ManualModeEnabled when enabling manual price mode", async () => {
+          const manualPrice = ethers.parseUnits("5", 18);
 
-          expect(await oracle.isManual(usdc.target)).to.be.false;
+          await expect(oracle.setManualPrice(usdc.target, manualPrice))
+            .to.emit(oracle, "ManualModeEnabled")
+            .withArgs(usdc.target, true);
+        });
+
+        it("should revert if token address is zero", async () => {
+          await expect(
+            oracle.setManualPrice(ethers.ZeroAddress, ethers.parseUnits("1", 18))
+          ).to.be.revertedWithCustomError(oracle, "ZeroAddress");
+        });
+
+        it("should revert if price is zero", async () => {
+          await expect(
+            oracle.setManualPrice(usdc.target, 0)
+          ).to.be.revertedWithCustomError(oracle, "InvalidManualPrice");
+        });
+
+        it("should overwrite existing manual price when called again", async () => {
+          const firstPrice = ethers.parseUnits("1", 18);
+          const newPrice = ethers.parseUnits("1.10", 18);
+
+          await oracle.setManualPrice(usdc.target, firstPrice);
+          await oracle.setManualPrice(usdc.target, newPrice);
+
+          expect(await oracle.manualPrices(usdc.target)).to.equal(newPrice);
+        });
+
+        it("should revert if manual price deviates >10% from last valid price", async () => {
+          await oracle.setChainlinkFeed(usdc.target, feed.target);
+          await oracle["fetchAndUpdatePrice(address)"](usdc.target); // establishes baseline = $1
+          const invalidHigh = ethers.parseUnits("1.20", 18); // +20%
+          await expect(oracle.setManualPrice(usdc.target, invalidHigh))
+            .to.be.revertedWithCustomError(oracle, "InvalidManualPrice");
         });
 
         it("should disable manual mode and emit event", async () => {
-          await oracle.setManualPrice(usdc.target, ethers.parseUnits("0.93", 18));
+          await oracle.setManualPrice(usdc.target, ethers.parseUnits("2", 18));
           await expect(oracle.disableManualPrice(usdc.target))
             .to.emit(oracle, "ManualModeEnabled")
             .withArgs(usdc.target, false);
           expect(await oracle.isManual(usdc.target)).to.be.false;
         });
 
-        it("should still maintain the manual price mapping after disablement", async () => {
-          await oracle.disableManualPrice(usdc.target);
-          const price = await oracle.manualPrices(usdc.target);
-          expect(price).to.equal(ethers.parseUnits("1.00", 18));
+        describe("disableManualPrice()", function () {
+          beforeEach(async () => {
+            // Ensure manual mode is active before disabling
+            await oracle.setManualPrice(usdc.target, ethers.parseUnits("1.00", 18));
+            expect(await oracle.isManual(usdc.target)).to.be.true;
+          });
+
+          it("should allow owner to disable manual mode", async () => {
+            await expect(oracle.disableManualPrice(usdc.target))
+              .to.emit(oracle, "ManualModeEnabled")
+              .withArgs(usdc.target, false);
+
+            expect(await oracle.isManual(usdc.target)).to.be.false;
+          });
+
+          it("should disable manual mode and emit event", async () => {
+            await oracle.setManualPrice(usdc.target, ethers.parseUnits("0.93", 18));
+            await expect(oracle.disableManualPrice(usdc.target))
+              .to.emit(oracle, "ManualModeEnabled")
+              .withArgs(usdc.target, false);
+            expect(await oracle.isManual(usdc.target)).to.be.false;
+          });
+
+          it("should still maintain the manual price mapping after disablement", async () => {
+            await oracle.disableManualPrice(usdc.target);
+            const price = await oracle.manualPrices(usdc.target);
+            expect(price).to.equal(ethers.parseUnits("1.00", 18));
+          });
+
+          it("should revert if token is zero address", async () => {
+            await expect(oracle.disableManualPrice(ethers.ZeroAddress))
+              .to.be.revertedWithCustomError(oracle, "TokenNotSupported");
+          });
+
+          it("should not allow non-owner to disable manual mode", async () => {
+            await expect(oracle.connect(user).disableManualPrice(usdc.target))
+              .to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount");
+          });
         });
 
-        it("should revert if token is zero address", async () => {
-          await expect(oracle.disableManualPrice(ethers.ZeroAddress))
-            .to.be.revertedWithCustomError(oracle, "TokenNotSupported");
+        it("allows manual price outside ±10% if lastValidPrice is stale", async () => {
+          await oracle.setChainlinkFeed(usdc.target, feed.target);
+          await oracle["fetchAndUpdatePrice(address)"](usdc.target);
+
+          await oracle.setStalePeriod(usdc.target, 3600);
+
+          // make lastValidPrice stale
+          await ethers.provider.send("evm_increaseTime", [3600 + 1]);
+          await ethers.provider.send("evm_mine");
+
+          // +50% deviation should be allowed
+          await expect(
+            oracle.setManualPrice(usdc.target, ethers.parseUnits("1.5", 18))
+          ).to.not.be.reverted;
         });
 
-        it("should not allow non-owner to disable manual mode", async () => {
-          await expect(oracle.connect(user).disableManualPrice(usdc.target))
-            .to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount");
+        it("reverts when oracle is paused", async () => {
+          await oracle.setOracleMode(1); // PAUSED
+
+          await expect(
+            oracle.setManualPrice(usdc.target, ethers.parseUnits("1", 18))
+          ).to.be.revertedWithCustomError(oracle, "OraclePaused");
         });
       });
 
-      it("allows manual price outside ±10% if lastValidPrice is stale", async () => {
-        await oracle.setChainlinkFeed(usdc.target, feed.target);
-        await oracle["fetchAndUpdatePrice(address)"](usdc.target);
+      describe("setVaultRateBounds()", function () {
+        const min = ethers.parseUnits("0.5", 18);
+        const max = ethers.parseUnits("2", 18);
+        const defaultMin = ethers.parseUnits("0.2", 18); // from Constants.DEFAULT_MIN_oracle_RATE
+        const defaultMax = ethers.parseUnits("3", 18);   // from Constants.DEFAULT_MAX_oracle_RATE
 
-        await oracle.setStalePeriod(usdc.target, 3600);
+        it("should allow owner to set min and max bounds for a oracle", async () => {
+          await expect(oracle.setVaultRateBounds(sdai.target, min, max))
+            .to.emit(oracle, "VaultRateBoundsSet")
+            .withArgs(sdai.target, min, max);
 
-        // make lastValidPrice stale
-        await ethers.provider.send("evm_increaseTime", [3600 + 1]);
-        await ethers.provider.send("evm_mine");
+          const bounds = await oracle.vaultRateBounds(sdai.target);
+          expect(bounds.minRate).to.equal(min);
+          expect(bounds.maxRate).to.equal(max);
+        });
 
-        // +50% deviation should be allowed
-        await expect(
-          oracle.setManualPrice(usdc.target, ethers.parseUnits("1.5", 18))
-        ).to.not.be.reverted;
-      });
+        it("should revert if oracle is zero address", async () => {
+          await expect(
+            oracle.setVaultRateBounds(ethers.ZeroAddress, min, max)
+          ).to.be.revertedWithCustomError(oracle, "ZeroAddress");
+        });
 
-      it("reverts when oracle is paused", async () => {
-        await oracle.setOracleMode(1); // PAUSED
+        it("should revert if min is zero", async () => {
+          await expect(
+            oracle.setVaultRateBounds(sdai.target, 0, max)
+          ).to.be.revertedWithCustomError(oracle, "InvalidVaultBounds");
+        });
 
-        await expect(
-          oracle.setManualPrice(usdc.target, ethers.parseUnits("1", 18))
-        ).to.be.revertedWithCustomError(oracle, "OraclePaused");
-      });
-    });
+        it("should revert if max ≤ min", async () => {
+          await expect(
+            oracle.setVaultRateBounds(sdai.target, max, min)
+          ).to.be.revertedWithCustomError(oracle, "InvalidVaultBounds");
+        });
 
-    describe("setStalePeriod()", function () {
-      it("should allow owner to update the stale period", async () => {
-        const newPeriod = 7200; // 2 hours
+        it("should revert if max > 100e18", async () => {
+          const hugeMax = ethers.parseUnits("101", 18); // exceeds hardcoded limit
+          await expect(
+            oracle.setVaultRateBounds(sdai.target, min, hugeMax)
+          ).to.be.revertedWithCustomError(oracle, "InvalidVaultBounds");
+        });
 
-        await expect(oracle.setStalePeriod(usdc.target, newPeriod)).
-          to.emit(oracle, "StalePeriodUpdated")
-          .withArgs(usdc.target, newPeriod);
+        it("should revert if called by non-owner", async () => {
+          await expect(
+            oracle.connect(user).setVaultRateBounds(sdai.target, min, max)
+          ).to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount");
+        });
 
-        expect(await oracle.stalePeriod(usdc.target)).to.equal(newPeriod);
-      });
+        it("should use default min/max bounds in _getoraclePrice() if none are set", async () => {
+          // Only set ERC4626 mapping and feed for underlying
+          await oracle.setERC4626Vault(sdai.target, dai.target);
+          await oracle.setChainlinkFeed(dai.target, feed.target);
 
-      it("should overwrite stalePeriod if called multiple times", async () => {
-        const firstPeriod = 3600;
-        const secondPeriod = 3600 * 3;
+          // Now fetch and verify that the defaults are accepted (rate = 1.02)
+          const tx = await oracle["fetchAndUpdatePrice(address)"](sdai.target);
+          const receipt = await tx.wait();
 
-        await oracle.setStalePeriod(usdc.target, firstPeriod);
-        await oracle.setStalePeriod(usdc.target, secondPeriod);
+          const price = await oracle.getPrice(sdai.target);
+          expect(price).to.equal(ethers.parseUnits("1.02", 18));
 
-        expect(await oracle.stalePeriod(usdc.target)).to.equal(secondPeriod);
-      });
-
-      it("should revert if non-owner tries to update stale period", async () => {
-        await expect(
-          oracle.connect(user).setStalePeriod(usdc.target, 9999)
-        ).to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount");
-      });
-
-      it("should revert if stalePeriod < 1h or > 3h", async () => {
-        await expect(oracle.setStalePeriod(usdc.target, 3600 - 1))
-          .to.be.revertedWithCustomError(oracle, "InvalidStalePeriod");
-        await expect(oracle.setStalePeriod(usdc.target, DAY * 3))
-          .to.be.revertedWithCustomError(oracle, "InvalidStalePeriod");
-      });
-
-      it("updates fallbackStalePeriod automatically when stalePeriod is updated", async () => {
-        const stale = 7200; // 2 hours
-        await oracle.setStalePeriod(usdc.target, stale);
-
-        const fallback = await oracle.fallbackStalePeriod(usdc.target);
-        expect(fallback).to.equal(stale * 2); // default multiplier = 2
-      });
-
-      it("maintains independent stalePeriod settings per token", async () => {
-        await oracle.setStalePeriod(usdc.target, 3600);
-        await oracle.setStalePeriod(dai.target, 7200);
-
-        expect(await oracle.stalePeriod(usdc.target)).to.equal(3600);
-        expect(await oracle.stalePeriod(dai.target)).to.equal(7200);
-
-        expect(await oracle.fallbackStalePeriod(usdc.target)).to.equal(3600 * 2);
-        expect(await oracle.fallbackStalePeriod(dai.target)).to.equal(7200 * 2);
-      });
-
-      it("manual price mode ignores stalePeriod and returns instantly", async () => {
-        await oracle.setManualPrice(usdc.target, ethers.parseUnits("1.11", 18));
-
-        // simulate huge time jump
-        await ethers.provider.send("evm_increaseTime", [999999]);
-        await ethers.provider.send("evm_mine");
-
-        await oracle["fetchAndUpdatePrice(address)"](usdc.target).then(tx => tx.wait());
-
-        const price = await oracle.getPrice(usdc.target);
-        expect(price).to.equal(ethers.parseUnits("1.11", 18));
-      });
-
-      it("reverts immediately when first Chainlink read is stale and no fallback exists", async () => {
-        await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
-
-        const stale = 3600;
-        await oracle.setStalePeriod(usdc.target, stale);
-
-        // No initial fetchAndUpdatePrice → no cached fallback
-
-        await feedUSDC.setUpdatedAt((await time.latest()) - (stale + 1));
-
-        await expect(
-          oracle["fetchAndUpdatePrice(address)"](usdc.target)
-        ).to.be.revertedWithCustomError(oracle, "NoFallbackPrice");
+          // Internally this passes: defaultMin = 0.2e18, defaultMax = 3e18
+        });
       });
     });
 
-    describe("setFallbackStalePeriod()", function () {
-      it("should allow owner to set fallback stale period ≥ stalePeriod", async () => {
-        const stale = 3600; // 1 hour
-        const fallback = 5400; // 1.5 hours
-
-        await oracle.setStalePeriod(usdc.target, stale);
-        await expect(oracle.setFallbackStalePeriod(usdc.target, fallback))
-          .to.emit(oracle, "FallbackStalePeriodUpdated")
-          .withArgs(usdc.target, fallback);
-
-        expect(await oracle.fallbackStalePeriod(usdc.target)).to.equal(fallback);
+    describe("Asset Control Plane", function () {
+      describe("setStalePeriod()", function () {
+        it("should allow owner to update the stale period", async () => {
+          const newPeriod = 7200; // 2 hours
+  
+          await expect(oracle.setStalePeriod(usdc.target, newPeriod)).
+            to.emit(oracle, "StalePeriodUpdated")
+            .withArgs(usdc.target, newPeriod);
+  
+          expect(await oracle.stalePeriod(usdc.target)).to.equal(newPeriod);
+        });
+  
+        it("should overwrite stalePeriod if called multiple times", async () => {
+          const firstPeriod = 3600;
+          const secondPeriod = 3600 * 3;
+  
+          await oracle.setStalePeriod(usdc.target, firstPeriod);
+          await oracle.setStalePeriod(usdc.target, secondPeriod);
+  
+          expect(await oracle.stalePeriod(usdc.target)).to.equal(secondPeriod);
+        });
+  
+        it("should revert if non-owner tries to update stale period", async () => {
+          await expect(
+            oracle.connect(user).setStalePeriod(usdc.target, 9999)
+          ).to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount");
+        });
+  
+        it("should revert if stalePeriod < 1h or > 3h", async () => {
+          await expect(oracle.setStalePeriod(usdc.target, 3600 - 1))
+            .to.be.revertedWithCustomError(oracle, "InvalidStalePeriod");
+          await expect(oracle.setStalePeriod(usdc.target, DAY * 3))
+            .to.be.revertedWithCustomError(oracle, "InvalidStalePeriod");
+        });
+  
+        it("updates fallbackStalePeriod automatically when stalePeriod is updated", async () => {
+          const stale = 7200; // 2 hours
+          await oracle.setStalePeriod(usdc.target, stale);
+  
+          const fallback = await oracle.fallbackStalePeriod(usdc.target);
+          expect(fallback).to.equal(stale * 2); // default multiplier = 2
+        });
+  
+        it("maintains independent stalePeriod settings per token", async () => {
+          await oracle.setStalePeriod(usdc.target, 3600);
+          await oracle.setStalePeriod(dai.target, 7200);
+  
+          expect(await oracle.stalePeriod(usdc.target)).to.equal(3600);
+          expect(await oracle.stalePeriod(dai.target)).to.equal(7200);
+  
+          expect(await oracle.fallbackStalePeriod(usdc.target)).to.equal(3600 * 2);
+          expect(await oracle.fallbackStalePeriod(dai.target)).to.equal(7200 * 2);
+        });
+  
+        it("manual price mode ignores stalePeriod and returns instantly", async () => {
+          await oracle.setManualPrice(usdc.target, ethers.parseUnits("1.11", 18));
+  
+          // simulate huge time jump
+          await ethers.provider.send("evm_increaseTime", [999999]);
+          await ethers.provider.send("evm_mine");
+  
+          await oracle["fetchAndUpdatePrice(address)"](usdc.target).then(tx => tx.wait());
+  
+          const price = await oracle.getPrice(usdc.target);
+          expect(price).to.equal(ethers.parseUnits("1.11", 18));
+        });
+  
+        it("reverts immediately when first Chainlink read is stale and no fallback exists", async () => {
+          await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
+  
+          const stale = 3600;
+          await oracle.setStalePeriod(usdc.target, stale);
+  
+          // No initial fetchAndUpdatePrice → no cached fallback
+  
+          await feedUSDC.setUpdatedAt((await time.latest()) - (stale + 1));
+  
+          await expect(
+            oracle["fetchAndUpdatePrice(address)"](usdc.target)
+          ).to.be.revertedWithCustomError(oracle, "NoFallbackPrice");
+        });
+      });
+  
+      describe("setFallbackStalePeriod()", function () {
+        it("should allow owner to set fallback stale period ≥ stalePeriod", async () => {
+          const stale = 3600; // 1 hour
+          const fallback = 5400; // 1.5 hours
+  
+          await oracle.setStalePeriod(usdc.target, stale);
+          await expect(oracle.setFallbackStalePeriod(usdc.target, fallback))
+            .to.emit(oracle, "FallbackStalePeriodUpdated")
+            .withArgs(usdc.target, fallback);
+  
+          expect(await oracle.fallbackStalePeriod(usdc.target)).to.equal(fallback);
+        });
+  
+        it("should revert if fallback period < stalePeriod", async () => {
+          await oracle.setStalePeriod(usdc.target, 7200); // 2 hours
+          await expect(oracle.setFallbackStalePeriod(usdc.target, 3600))
+            .to.be.revertedWithCustomError(oracle, "InvalidStalePeriod");
+        });
+  
+        it("enforces fallbackStalePeriod bounds", async () => {
+          const stale = 3600;
+          await oracle.setStalePeriod(usdc.target, stale);
+  
+          await expect(
+            oracle.setFallbackStalePeriod(usdc.target, stale - 1)
+          ).to.be.revertedWithCustomError(oracle, "InvalidStalePeriod");
+  
+          const tooHigh = stale * 3 + 1;
+          await expect(
+            oracle.setFallbackStalePeriod(usdc.target, tooHigh)
+          ).to.be.revertedWithCustomError(oracle, "InvalidStalePeriod");
+  
+          // valid
+          const valid = stale * 3;
+          await oracle.setFallbackStalePeriod(usdc.target, valid);
+          expect(await oracle.fallbackStalePeriod(usdc.target)).to.equal(valid);
+        });
+  
+        it("should revert if called by non-owner", async () => {
+          await expect(
+            oracle.connect(user).setFallbackStalePeriod(usdc.target, 4000)
+          ).to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount");
+        });
       });
 
-      it("should revert if fallback period < stalePeriod", async () => {
-        await oracle.setStalePeriod(usdc.target, 7200); // 2 hours
-        await expect(oracle.setFallbackStalePeriod(usdc.target, 3600))
-          .to.be.revertedWithCustomError(oracle, "InvalidStalePeriod");
-      });
-
-      it("enforces fallbackStalePeriod bounds", async () => {
-        const stale = 3600;
-        await oracle.setStalePeriod(usdc.target, stale);
-
-        await expect(
-          oracle.setFallbackStalePeriod(usdc.target, stale - 1)
-        ).to.be.revertedWithCustomError(oracle, "InvalidStalePeriod");
-
-        const tooHigh = stale * 3 + 1;
-        await expect(
-          oracle.setFallbackStalePeriod(usdc.target, tooHigh)
-        ).to.be.revertedWithCustomError(oracle, "InvalidStalePeriod");
-
-        // valid
-        const valid = stale * 3;
-        await oracle.setFallbackStalePeriod(usdc.target, valid);
-        expect(await oracle.fallbackStalePeriod(usdc.target)).to.equal(valid);
-      });
-
-      it("should revert if called by non-owner", async () => {
-        await expect(
-          oracle.connect(user).setFallbackStalePeriod(usdc.target, 4000)
-        ).to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount");
+      describe("removeSupportedToken()", function () {
+        beforeEach(async () => {
+          await setup();
+  
+          // register token first
+          await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
+        });
+  
+        it("should allow owner to remove a supported token", async () => {
+          await expect(oracle.removeSupportedToken(usdc.target))
+            .to.emit(oracle, "TokenSupportRemoved")
+            .withArgs(usdc.target);
+  
+          expect(await oracle.isSupported(usdc.target)).to.be.false;
+        });
+  
+        it("should remove token from supportedTokens array (swap & pop)", async () => {
+          // add multiple tokens
+          await oracle.setChainlinkFeed(dai.target, feedDAI.target);
+          await oracle.setChainlinkFeed(wbtc.target, feedWBTC.target);
+  
+          let tokens = await oracle.getSupportedTokens();
+          expect(tokens.length).to.equal(3);
+  
+          // remove middle token (usdc)
+          await oracle.removeSupportedToken(usdc.target);
+  
+          tokens = await oracle.getSupportedTokens();
+  
+          expect(tokens).to.not.include(usdc.target);
+          expect(tokens.length).to.equal(2);
+        });
+  
+        it("should revert if token is not supported", async () => {
+          const newToken = await MockERC20.deploy("New Coin", "NCOIN", 18, ethers.parseUnits("1000000", 18)); // Create a new token. Do not set pricing logic via any path.
+          const isCurrentlySupported = await oracle.isSupported(newToken.target); // Obtain and store token support state.
+          await expect(isCurrentlySupported).to.equal(false); // Confirm token is currently not supported.
+          await expect(
+            oracle.removeSupportedToken(newToken.target) // not added yet in this test
+          ).to.be.revertedWithCustomError(oracle, "TokenNotSupported");
+        });
+  
+        it("should revert if called by non-owner", async () => {
+          await expect(
+            oracle.connect(user).removeSupportedToken(usdc.target)
+          ).to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount");
+        });
+  
+        it("should NOT delete cached state (non-destructive removal)", async () => {
+          // set price first
+          await oracle["fetchAndUpdatePrice(address)"](usdc.target);
+  
+          const before = await oracle.lastValidPrice(usdc.target);
+  
+          await oracle.removeSupportedToken(usdc.target);
+  
+          // cached price should still exist
+          const after = await oracle.lastValidPrice(usdc.target);
+  
+          expect(after.price).to.equal(before.price);
+          expect(after.timestamp).to.equal(before.timestamp);
+        });
+  
+        it("should cause fetchAndUpdatePrice() to revert after removal", async () => {
+          await oracle.removeSupportedToken(usdc.target);
+  
+          await expect(
+            oracle["fetchAndUpdatePrice(address)"](usdc.target)
+          ).to.be.revertedWithCustomError(oracle, "TokenNotSupported");
+        });
+  
+        it("should still allow getPrice() while cached price is fresh", async () => {
+          await oracle["fetchAndUpdatePrice(address)"](usdc.target);
+  
+          const cached = await oracle.getPrice(usdc.target);
+  
+          await oracle.removeSupportedToken(usdc.target);
+  
+          // should still work (graceful deprecation)
+          const price = await oracle.getPrice(usdc.target);
+          expect(price).to.equal(cached);
+        });
+  
+        it("should eventually revert getPrice() once cached price becomes stale", async () => {
+          await oracle["fetchAndUpdatePrice(address)"](usdc.target);
+  
+          const stale = 3600;
+          await oracle.setStalePeriod(usdc.target, stale);
+  
+          await oracle.removeSupportedToken(usdc.target);
+  
+          // advance time beyond stalePeriod
+          await ethers.provider.send("evm_increaseTime", [stale + 1]);
+          await ethers.provider.send("evm_mine");
+  
+          await expect(
+            oracle.getPrice(usdc.target)
+          ).to.be.revertedWithCustomError(oracle, "StalePrice");
+        });
       });
     });
 
-    describe("setOracleMode()", function () {
-      it("should allow owner to change mode from NORMAL to PAUSED", async () => {
-        const PAUSED = 1; // enum OracleMode.PAUSED
-        const NORMAL = 0;
-
-        await expect(oracle.setOracleMode(PAUSED))
-          .to.emit(oracle, "OracleModeChanged")
-          .withArgs(NORMAL, PAUSED);
-
-        expect(await oracle.mode()).to.equal(PAUSED);
+    describe("Availability Control Plane", function() {
+      describe("setOracleMode()", function () {
+        it("should allow owner to change mode from NORMAL to PAUSED", async () => {
+          const PAUSED = 1; // enum OracleMode.PAUSED
+          const NORMAL = 0;
+  
+          await expect(oracle.setOracleMode(PAUSED))
+            .to.emit(oracle, "OracleModeChanged")
+            .withArgs(NORMAL, PAUSED);
+  
+          expect(await oracle.mode()).to.equal(PAUSED);
+        });
+  
+        it("should allow switching back from PAUSED to NORMAL", async () => {
+          const PAUSED = 1;
+          const NORMAL = 0;
+  
+          await oracle.setOracleMode(PAUSED);
+  
+          await expect(oracle.setOracleMode(NORMAL))
+            .to.emit(oracle, "OracleModeChanged")
+            .withArgs(PAUSED, NORMAL);
+  
+          expect(await oracle.mode()).to.equal(NORMAL);
+        });
+  
+        it("should revert if called by non-owner", async () => {
+          const PAUSED = 1;
+          await expect(oracle.connect(user).setOracleMode(PAUSED))
+            .to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount")
+            .withArgs(user.address);
+        });
       });
-
-      it("should allow switching back from PAUSED to NORMAL", async () => {
-        const PAUSED = 1;
-        const NORMAL = 0;
-
-        await oracle.setOracleMode(PAUSED);
-
-        await expect(oracle.setOracleMode(NORMAL))
-          .to.emit(oracle, "OracleModeChanged")
-          .withArgs(PAUSED, NORMAL);
-
-        expect(await oracle.mode()).to.equal(NORMAL);
-      });
-
-      it("should revert if called by non-owner", async () => {
-        const PAUSED = 1;
-        await expect(oracle.connect(user).setOracleMode(PAUSED))
-          .to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount")
-          .withArgs(user.address);
-      });
-    });
-
-    describe("setVaultRateBounds()", function () {
-      const min = ethers.parseUnits("0.5", 18);
-      const max = ethers.parseUnits("2", 18);
-      const defaultMin = ethers.parseUnits("0.2", 18); // from Constants.DEFAULT_MIN_oracle_RATE
-      const defaultMax = ethers.parseUnits("3", 18);   // from Constants.DEFAULT_MAX_oracle_RATE
-
-      it("should allow owner to set min and max bounds for a oracle", async () => {
-        await expect(oracle.setVaultRateBounds(sdai.target, min, max))
-          .to.emit(oracle, "VaultRateBoundsSet")
-          .withArgs(sdai.target, min, max);
-
-        const bounds = await oracle.vaultRateBounds(sdai.target);
-        expect(bounds.minRate).to.equal(min);
-        expect(bounds.maxRate).to.equal(max);
-      });
-
-      it("should revert if oracle is zero address", async () => {
-        await expect(
-          oracle.setVaultRateBounds(ethers.ZeroAddress, min, max)
-        ).to.be.revertedWithCustomError(oracle, "ZeroAddress");
-      });
-
-      it("should revert if min is zero", async () => {
-        await expect(
-          oracle.setVaultRateBounds(sdai.target, 0, max)
-        ).to.be.revertedWithCustomError(oracle, "InvalidVaultBounds");
-      });
-
-      it("should revert if max ≤ min", async () => {
-        await expect(
-          oracle.setVaultRateBounds(sdai.target, max, min)
-        ).to.be.revertedWithCustomError(oracle, "InvalidVaultBounds");
-      });
-
-      it("should revert if max > 100e18", async () => {
-        const hugeMax = ethers.parseUnits("101", 18); // exceeds hardcoded limit
-        await expect(
-          oracle.setVaultRateBounds(sdai.target, min, hugeMax)
-        ).to.be.revertedWithCustomError(oracle, "InvalidVaultBounds");
-      });
-
-      it("should revert if called by non-owner", async () => {
-        await expect(
-          oracle.connect(user).setVaultRateBounds(sdai.target, min, max)
-        ).to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount");
-      });
-
-      it("should use default min/max bounds in _getoraclePrice() if none are set", async () => {
-        // Only set ERC4626 mapping and feed for underlying
-        await oracle.setERC4626Vault(sdai.target, dai.target);
-        await oracle.setChainlinkFeed(dai.target, feed.target);
-
-        // Now fetch and verify that the defaults are accepted (rate = 1.02)
-        const tx = await oracle["fetchAndUpdatePrice(address)"](sdai.target);
-        const receipt = await tx.wait();
-
-        const price = await oracle.getPrice(sdai.target);
-        expect(price).to.equal(ethers.parseUnits("1.02", 18));
-
-        // Internally this passes: defaultMin = 0.2e18, defaultMax = 3e18
-      });
-    });
-
-    describe("removeSupportedToken()", function () {
-      beforeEach(async () => {
-        await setup();
-
-        // register token first
-        await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
-      });
-
-      it("should allow owner to remove a supported token", async () => {
-        await expect(oracle.removeSupportedToken(usdc.target))
-          .to.emit(oracle, "TokenSupportRemoved")
-          .withArgs(usdc.target);
-
-        expect(await oracle.isSupported(usdc.target)).to.be.false;
-      });
-
-      it("should remove token from supportedTokens array (swap & pop)", async () => {
-        // add multiple tokens
-        await oracle.setChainlinkFeed(dai.target, feedDAI.target);
-        await oracle.setChainlinkFeed(wbtc.target, feedWBTC.target);
-
-        let tokens = await oracle.getSupportedTokens();
-        expect(tokens.length).to.equal(3);
-
-        // remove middle token (usdc)
-        await oracle.removeSupportedToken(usdc.target);
-
-        tokens = await oracle.getSupportedTokens();
-
-        expect(tokens).to.not.include(usdc.target);
-        expect(tokens.length).to.equal(2);
-      });
-
-      it("should revert if token is not supported", async () => {
-        const newToken = await MockERC20.deploy("New Coin", "NCOIN", 18, ethers.parseUnits("1000000", 18)); // Create a new token. Do not set pricing logic via any path.
-        const isCurrentlySupported = await oracle.isSupported(newToken.target); // Obtain and store token support state.
-        await expect(isCurrentlySupported).to.equal(false); // Confirm token is currently not supported.
-        await expect(
-          oracle.removeSupportedToken(newToken.target) // not added yet in this test
-        ).to.be.revertedWithCustomError(oracle, "TokenNotSupported");
-      });
-
-      it("should revert if called by non-owner", async () => {
-        await expect(
-          oracle.connect(user).removeSupportedToken(usdc.target)
-        ).to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount");
-      });
-
-      it("should NOT delete cached state (non-destructive removal)", async () => {
-        // set price first
-        await oracle["fetchAndUpdatePrice(address)"](usdc.target);
-
-        const before = await oracle.lastValidPrice(usdc.target);
-
-        await oracle.removeSupportedToken(usdc.target);
-
-        // cached price should still exist
-        const after = await oracle.lastValidPrice(usdc.target);
-
-        expect(after.price).to.equal(before.price);
-        expect(after.timestamp).to.equal(before.timestamp);
-      });
-
-      it("should cause fetchAndUpdatePrice() to revert after removal", async () => {
-        await oracle.removeSupportedToken(usdc.target);
-
-        await expect(
-          oracle["fetchAndUpdatePrice(address)"](usdc.target)
-        ).to.be.revertedWithCustomError(oracle, "TokenNotSupported");
-      });
-
-      it("should still allow getPrice() while cached price is fresh", async () => {
-        await oracle["fetchAndUpdatePrice(address)"](usdc.target);
-
-        const cached = await oracle.getPrice(usdc.target);
-
-        await oracle.removeSupportedToken(usdc.target);
-
-        // should still work (graceful deprecation)
-        const price = await oracle.getPrice(usdc.target);
-        expect(price).to.equal(cached);
-      });
-
-      it("should eventually revert getPrice() once cached price becomes stale", async () => {
-        await oracle["fetchAndUpdatePrice(address)"](usdc.target);
-
-        const stale = 3600;
-        await oracle.setStalePeriod(usdc.target, stale);
-
-        await oracle.removeSupportedToken(usdc.target);
-
-        // advance time beyond stalePeriod
-        await ethers.provider.send("evm_increaseTime", [stale + 1]);
-        await ethers.provider.send("evm_mine");
-
-        await expect(
-          oracle.getPrice(usdc.target)
-        ).to.be.revertedWithCustomError(oracle, "StalePrice");
-      });
+  
     });
   })
 
