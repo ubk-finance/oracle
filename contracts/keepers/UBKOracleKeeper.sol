@@ -87,7 +87,7 @@ contract UBKOracleKeeper is AutomationCompatibleInterface, Ownable {
     function checkUpkeep(
         bytes calldata
     ) external view override returns (bool upkeepNeeded, bytes memory) {
-        upkeepNeeded = block.timestamp >= lastRun + interval;
+        upkeepNeeded = _checkUpkeep();
     }
 
     /**
@@ -135,9 +135,22 @@ contract UBKOracleKeeper is AutomationCompatibleInterface, Ownable {
      * update for those tokens.
      */
     function _run() internal {
-        if (block.timestamp < lastRun + interval) return;
+        if (!_checkUpkeep()) return;
 
         lastRun = block.timestamp;
         oracle.fetchAndUpdatePrice(oracle.getSupportedTokens());
+    }
+
+    /**
+     * @notice Executes the shared interval dependent upkeep logic.
+     * @return upkeepNeeded True if the configured interval has elapsed since the last run.
+     *
+     * @dev
+     * - Called by _run(), which in turn is called by both run() and performUpkeep().
+     * - Uses `block.timestamp` to determine eligibility.
+     * - Does not perform any state changes.
+     */
+    function _checkUpkeep() internal view returns (bool upkeepNeeded) {
+        upkeepNeeded = block.timestamp >= lastRun + interval;
     }
 }
