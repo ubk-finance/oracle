@@ -323,6 +323,82 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
         emit ERC4626Registered(vault, underlying);
     }
 
+    /**
+     * @notice Gracefully removes a token from the oracle's supported token set.
+     *
+     * @dev
+     *  This function is intended to deprecate a previously valid and configured
+     *  token without deleting its historical oracle configuration or cached metadata.
+     *
+     *  Upon successful removal:
+     *   - `isSupported[token]` is set to false.
+     *   - `token` is removed from the enumerable `supportedTokens` array using
+     *     swap-and-pop.
+     *   - No other token-specific oracle state is modified.
+     *
+     *  In particular, this function intentionally DOES NOT clear or mutate:
+     *   - `tokenDecimalsCache[token]`
+     *   - `chainlinkFeeds[token]`
+     *   - `erc4626Underlying[token]`
+     *   - `manualPrices[token]`
+     *   - `isManual[token]`
+     *   - `lastValidPrice[token]`
+     *   - `stalePeriod[token]`
+     *   - `fallbackStalePeriod[token]`
+     *   - `vaultRateBounds[token]`
+     *   - cached Chainlink aggregator decimals in `aggDecimalsCache`
+     *
+     *  This preserves the oracle's practical immutability assumptions around
+     *  validated token decimals and feed decimals, and allows historical pricing
+     *  state to remain auditable after deprecation.
+     *
+     *  After removal, fresh price resolution for `token` is disabled:
+     *   - `fetchAndUpdatePrice(token)` will revert because `_resolvePrice(token)`
+     *     is protected by `supportedTokenOnly(token)`.
+     *   - Batch updates containing `token` will also revert when that token is
+     *     reached.
+     *
+     *  Cached-price reads degrade gracefully:
+     *   - `getPrice(token)`, `toUSD(token, amount)`, and `fromUSD(token, usdAmount)`
+     *     may continue to serve the token's existing cached price while
+     *     `lastValidPrice[token]` remains fresh under `stalePeriod[token]`.
+     *   - Once the cached price exceeds `stalePeriod[token]`, those cached read
+     *     paths will begin reverting with `StalePrice`.
+     *   - If no cached price exists, cached read paths revert with
+     *     `NoFallbackPrice`.
+     *
+     *  This creates a controlled deprecation flow: new oracle updates stop
+     *  immediately, while consumers that rely on the existing cached price have
+     *  until the configured stale period expires before reads also fail.
+     *
+     *  Requirements:
+     *   - Caller must be the owner.
+     *   - `token` must currently be supported.
+     *
+     * @param token The supported token address to deprecate.
+     *
+     * Emits a {TokenSupportRemoved} event.
+     */
+    function removeSupportedToken(
+        address token
+    ) external onlyOwner supportedTokenOnly(token) {
+        // 1. Mark as unsupported
+        isSupported[token] = false;
+
+        // 2. Swap and pop from supportedTokens array
+        uint256 len = supportedTokens.length;
+        for (uint256 i = 0; i < len; ++i) {
+            if (supportedTokens[i] == token) {
+                // Move last element into deleted slot
+                supportedTokens[i] = supportedTokens[len - 1];
+                supportedTokens.pop();
+                break;
+            }
+        }
+
+        emit TokenSupportRemoved(token);
+    }
+
     // -----------------------------------------------------------------------
     // External / Public API
     // -----------------------------------------------------------------------
