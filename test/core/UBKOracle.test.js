@@ -1171,7 +1171,7 @@ describe("UBKOracle", function () {
     });
 
     describe("Constructor", function () {
-      it("sets owner and oracle correctly", async () => {
+      it("sets owner, oracle and initializes state correctly", async () => {
         expect(await keeper.owner()).to.equal(deployer.address);
         expect(await keeper.oracle()).to.equal(oracle.target);
 
