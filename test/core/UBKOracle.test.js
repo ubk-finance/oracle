@@ -619,6 +619,107 @@ describe("UBKOracle", function () {
         // Internally this passes: defaultMin = 0.2e18, defaultMax = 3e18
       });
     });
+
+    describe("removeSupportedToken()", function () {
+      beforeEach(async () => {
+        await setup();
+
+        // register token first
+        await oracle.setChainlinkFeed(usdc.target, feedUSDC.target);
+      });
+
+      it("should allow owner to remove a supported token", async () => {
+        await expect(oracle.removeSupportedToken(usdc.target))
+          .to.emit(oracle, "TokenSupportRemoved")
+          .withArgs(usdc.target);
+
+        expect(await oracle.isSupported(usdc.target)).to.be.false;
+      });
+
+      it("should remove token from supportedTokens array (swap & pop)", async () => {
+        // add multiple tokens
+        await oracle.setChainlinkFeed(dai.target, feedDAI.target);
+        await oracle.setChainlinkFeed(wbtc.target, feedWBTC.target);
+
+        let tokens = await oracle.getSupportedTokens();
+        expect(tokens.length).to.equal(3);
+
+        // remove middle token (usdc)
+        await oracle.removeSupportedToken(usdc.target);
+
+        tokens = await oracle.getSupportedTokens();
+
+        expect(tokens).to.not.include(usdc.target);
+        expect(tokens.length).to.equal(2);
+      });
+
+      it("should revert if token is not supported", async () => {
+        const newToken = await MockERC20.deploy("New Coin", "NCOIN", 18, ethers.parseUnits("1000000", 18)); // Create a new token. Do not set pricing logic via any path.
+        const isCurrentlySupported = await oracle.isSupported(newToken.target); // Obtain and store token support state.
+        await expect(isCurrentlySupported).to.equal(false); // Confirm token is currently not supported.
+        await expect(
+          oracle.removeSupportedToken(newToken.target) // not added yet in this test
+        ).to.be.revertedWithCustomError(oracle, "TokenNotSupported");
+      });
+
+      it("should revert if called by non-owner", async () => {
+        await expect(
+          oracle.connect(user).removeSupportedToken(usdc.target)
+        ).to.be.revertedWithCustomError(oracle, "OwnableUnauthorizedAccount");
+      });
+
+      it("should NOT delete cached state (non-destructive removal)", async () => {
+        // set price first
+        await oracle["fetchAndUpdatePrice(address)"](usdc.target);
+
+        const before = await oracle.lastValidPrice(usdc.target);
+
+        await oracle.removeSupportedToken(usdc.target);
+
+        // cached price should still exist
+        const after = await oracle.lastValidPrice(usdc.target);
+
+        expect(after.price).to.equal(before.price);
+        expect(after.timestamp).to.equal(before.timestamp);
+      });
+
+      it("should cause fetchAndUpdatePrice() to revert after removal", async () => {
+        await oracle.removeSupportedToken(usdc.target);
+
+        await expect(
+          oracle["fetchAndUpdatePrice(address)"](usdc.target)
+        ).to.be.revertedWithCustomError(oracle, "TokenNotSupported");
+      });
+
+      it("should still allow getPrice() while cached price is fresh", async () => {
+        await oracle["fetchAndUpdatePrice(address)"](usdc.target);
+
+        const cached = await oracle.getPrice(usdc.target);
+
+        await oracle.removeSupportedToken(usdc.target);
+
+        // should still work (graceful deprecation)
+        const price = await oracle.getPrice(usdc.target);
+        expect(price).to.equal(cached);
+      });
+
+      it("should eventually revert getPrice() once cached price becomes stale", async () => {
+        await oracle["fetchAndUpdatePrice(address)"](usdc.target);
+
+        const stale = 3600;
+        await oracle.setStalePeriod(usdc.target, stale);
+
+        await oracle.removeSupportedToken(usdc.target);
+
+        // advance time beyond stalePeriod
+        await ethers.provider.send("evm_increaseTime", [stale + 1]);
+        await ethers.provider.send("evm_mine");
+
+        await expect(
+          oracle.getPrice(usdc.target)
+        ).to.be.revertedWithCustomError(oracle, "StalePrice");
+      });
+    });
   })
 
   describe("External API", function () {
