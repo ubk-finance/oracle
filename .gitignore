@@ -24,6 +24,7 @@ abi/
 
 # Coverage reports
 coverage/
+coverage.json
 
 # Compiled binaries (if using Foundry later)
 out/
