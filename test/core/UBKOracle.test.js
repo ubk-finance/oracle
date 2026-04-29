@@ -1046,8 +1046,6 @@ describe("UBKOracle", function () {
       });
     });
 
-
-
     describe("getPrice()", function () {
       beforeEach(async () => {
         await setup();
