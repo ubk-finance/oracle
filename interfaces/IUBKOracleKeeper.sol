@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
 interface IUBKOracleKeeper {
     event KeeperIntervalUpdated(uint256 oldInterval, uint256 newInterval);
     event KeeperTaskCompleted(
