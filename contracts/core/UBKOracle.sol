@@ -564,15 +564,32 @@ contract UBKOracle is IUBKOracle, UBKDecimalsBounded, Ownable {
      *
      *   1. `NoFallbackPrice(token)`
      *      - The token has **never had a successfully resolved and cached price**, OR
-     *      - The token is **unsupported** and therefore has no initialized pricing state.
+     *      - The token is **unsupported AND has no remaining cached pricing state**.
      *
      *   2. `StalePrice(token, lastUpdated, now)`
      *      - A cached price exists, but its age exceeds `stalePeriod[token]`.
      *
-     *  Supported tokens are guaranteed to have:
+     *  === SUPPORTED vs DEPRECATED TOKENS ===
+     *
+     *  - Supported tokens:
+     *      Have active pricing configuration and are eligible for fresh price
+     *      resolution via `fetchAndUpdatePrice()`.
+     *
+     *  - Removed (deprecated) tokens:
+     *      May still have a valid cached price in `lastValidPrice[token]`.
+     *      In this case:
+     *        - Cached reads continue to succeed while the price remains fresh.
+     *        - No new prices can be fetched or updated.
+     *        - Once the cached price becomes stale, all read paths revert.
+     *
+     *  This design enables **graceful deprecation**, where:
+     *   - Write paths (price updates) fail immediately after removal.
+     *   - Read paths degrade naturally over time as cached data expires.
+     *
+     *  Supported tokens are guaranteed (at registration time) to have:
      *   - non-zero addresses,
      *   - validated and cached decimals within [6, 18],
-     *   - pricing state initialized only via explicit configuration paths
+     *   - pricing state initialized via explicit configuration paths
      *     (e.g. Chainlink feeds, ERC4626 vaults, or manual pricing).
      *
      *  As a result, callers of `toUSD` and `fromUSD` can safely rely on this function

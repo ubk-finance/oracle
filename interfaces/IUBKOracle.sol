@@ -59,6 +59,8 @@ interface IUBKOracle {
         string reason
     );
 
+    event TokenSupportRemoved(address indexed token);
+
     // -----------------------------------------------------------------------
     // VIEW PRICING API (Consumer-facing)
     // -----------------------------------------------------------------------
