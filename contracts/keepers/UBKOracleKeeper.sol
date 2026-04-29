@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/AutomationCompatibleInterface.sol";
 
 import "../../interfaces/IUBKOracle.sol";
+import "../../interfaces/IUBKOracleKeeper.sol";
 import "../constants/UBKOracleConstants.sol";
 import "../errors/UBKOracleErrors.sol";
 
@@ -24,7 +25,11 @@ import "../errors/UBKOracleErrors.sol";
  * - `performUpkeep` and `run` are permissionless but gated by time checks.
  * - `setInterval` is restricted to the contract owner.
  */
-contract UBKOracleKeeper is AutomationCompatibleInterface, Ownable {
+contract UBKOracleKeeper is
+    AutomationCompatibleInterface,
+    IUBKOracleKeeper,
+    Ownable
+{
     IUBKOracle public immutable oracle; // Oracle is immutable post construction.
 
     uint256 public lastRun; // Defaults to 0.
@@ -57,6 +62,7 @@ contract UBKOracleKeeper is AutomationCompatibleInterface, Ownable {
      * @param _interval New keeper execution interval, in seconds.
      */
     function setInterval(uint256 _interval) external onlyOwner {
+        // Validate _interval first.
         if (
             _interval >
             UBKOracleConstants.ORACLE_MAX_CHAINLINK_KEEPER_INTERVAL ||
@@ -68,7 +74,13 @@ contract UBKOracleKeeper is AutomationCompatibleInterface, Ownable {
                 _interval
             );
         }
+
+        // Update state.
+        uint256 oldInterval = interval;
         interval = _interval;
+
+        // Emit event for observability.
+        emit KeeperIntervalUpdated(oldInterval, interval);
     }
 
     // -----------------------------------------------------------------------
@@ -156,9 +168,14 @@ contract UBKOracleKeeper is AutomationCompatibleInterface, Ownable {
      * update for those tokens.
      */
     function _run() internal {
+        // Validate if upkeep threshold has passed.
         if (!_checkUpkeep()) return;
 
+        // Perform upkeep.
         lastRun = block.timestamp;
         oracle.fetchAndUpdatePrice(oracle.getSupportedTokens());
+
+        // Emit event for observability.
+        emit KeeperTaskCompleted(lastRun);
     }
 }
