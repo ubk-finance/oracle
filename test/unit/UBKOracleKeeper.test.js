@@ -42,7 +42,7 @@ describe("UBKOracleKeeper", function () {
 
     describe("Admin", function () {
         describe("setInterval()", function () {
-            it("updates interval and emits event", async () => {
+            it("should allow owner to set valid interval and emit event", async () => {
                 const newInterval = DAY;
 
                 await expect(keeper.setInterval(newInterval))
@@ -51,18 +51,61 @@ describe("UBKOracleKeeper", function () {
                 expect(await keeper.interval()).to.equal(newInterval);
             });
 
-            it("reverts if interval outside bounds", async () => {
+            it("should revert if non-owner tries to set interval", async () => {
+                await expect(
+                    keeper.connect(user).setInterval(DAY)
+                ).to.be.revertedWithCustomError(keeper, "OwnableUnauthorizedAccount");
+            });
+
+            it("should revert if interval outside bounds", async () => {
                 await expect(keeper.setInterval(1))
                     .to.be.revertedWithCustomError(keeper, "InvalidThreshold");
 
                 await expect(keeper.setInterval(DAY + 1))
                     .to.be.revertedWithCustomError(keeper, "InvalidThreshold");
             });
+        });
 
-            it("reverts if non-owner", async () => {
+        describe("setRetryFactor()", function () {
+            it("should allow owner to set valid retryFactor and emit event", async () => {
+                const newRetryFactor = DAY / 4; // must be < interval (default = DAY/2)
+
+                await expect(keeper.setRetryFactor(newRetryFactor))
+                    .to.emit(keeper, "KeeperRetryFactorUpdated");
+
+                expect(await keeper.retryFactor()).to.equal(newRetryFactor);
+            });
+
+            it("should allow owner to set retryFactor equal to interval", async () => {
+                const interval = await keeper.interval();
+
+                await keeper.setRetryFactor(interval);
+                expect(await keeper.retryFactor()).to.equal(interval);
+            });
+
+            it("should revert if non-owner tries to set retryFactor", async () => {
+                const newRetryFactor = DAY / 4;
+
                 await expect(
-                    keeper.connect(user).setInterval(DAY)
+                    keeper.connect(user).setRetryFactor(newRetryFactor)
                 ).to.be.revertedWithCustomError(keeper, "OwnableUnauthorizedAccount");
+            });
+
+            it("should revert if if retryFactor outside bounds", async () => {
+                // too small
+                await expect(keeper.setRetryFactor(1))
+                    .to.be.revertedWithCustomError(keeper, "InvalidThreshold");
+
+                // too large (beyond max interval)
+                await expect(keeper.setRetryFactor(DAY + 1))
+                    .to.be.revertedWithCustomError(keeper, "InvalidThreshold");
+            });
+
+            it("should revert if if retryFactor > interval", async () => {
+                const interval = await keeper.interval(); // default = DAY / 2
+
+                await expect(keeper.setRetryFactor(interval + 1n))
+                    .to.be.revertedWithCustomError(keeper, "InvalidThreshold");
             });
         });
     });
