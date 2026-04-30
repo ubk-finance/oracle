@@ -2,6 +2,12 @@
 pragma solidity ^0.8.20;
 
 interface IUBKOracleKeeper {
+    // Keeper modes
+    enum KeeperMode {
+        NORMAL,
+        PAUSED
+    }
+
     // Admin/Config events
     event KeeperIntervalUpdated(uint256 oldInterval, uint256 newInterval);
     event KeeperRetryFactorUpdated(uint256 oldRetryFactor, uint256 newRetryFactor);
