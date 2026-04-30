@@ -32,7 +32,7 @@ contract UBKOracleKeeper is
 {
     IUBKOracle public immutable oracle; // Oracle is immutable post construction.
 
-    KeeperMode mode = KeeperMode.NORMAL; // Initializes keeper mode to NORMAL.
+    KeeperMode public mode = KeeperMode.NORMAL; // Initializes keeper mode to NORMAL.
 
     uint256 public lastRun; // Initializes to 0.
     uint256 public interval = UBKOracleConstants.ORACLE_DEFAULT_KEEPER_INTERVAL; // Initializes to 12 hours.

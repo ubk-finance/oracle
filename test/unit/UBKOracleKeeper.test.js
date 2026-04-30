@@ -108,6 +108,38 @@ describe("UBKOracleKeeper", function () {
                     .to.be.revertedWithCustomError(keeper, "InvalidThreshold");
             });
         });
+
+        describe("setKeeperMode()", function () {
+            it("should allow owner to update keeper mode and emit event", async () => {
+                // Assuming enum: NORMAL = 0, PAUSED = 1
+                const PAUSED = 1;
+        
+                await expect(keeper.setKeeperMode(PAUSED))
+                    .to.emit(keeper, "KeeperModeUpdated")
+                    .withArgs(PAUSED, anyValue);
+        
+                expect(await keeper.mode()).to.equal(PAUSED);
+            });
+        
+            it("should revert if non-owner tries to set keeper mode", async () => {
+                const PAUSED = 1;
+        
+                await expect(
+                    keeper.connect(user).setKeeperMode(PAUSED)
+                ).to.be.revertedWithCustomError(keeper, "OwnableUnauthorizedAccount");
+            });
+        
+            it("should allow switching back to NORMAL mode", async () => {
+                const NORMAL = 0;
+                const PAUSED = 1;
+        
+                await keeper.setKeeperMode(PAUSED);
+                expect(await keeper.mode()).to.equal(PAUSED);
+        
+                await keeper.setKeeperMode(NORMAL);
+                expect(await keeper.mode()).to.equal(NORMAL);
+            });
+        });
     });
 
     describe("External API", function () {
