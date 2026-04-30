@@ -9,8 +9,8 @@ interface IUBKOracleKeeper {
     }
 
     // Admin/Config events
-    event KeeperIntervalUpdated(uint256 oldInterval, uint256 newInterval);
-    event KeeperRetryFactorUpdated(uint256 oldRetryFactor, uint256 newRetryFactor);
+    event KeeperRegularIntervalUpdated(uint256 oldInterval, uint256 newInterval);
+    event KeeperRetryIntervalUpdated(uint256 oldInterval, uint256 newInterval);
     event KeeperModeUpdated(uint40 mode, uint256 timestamp);
 
     // Task execution events

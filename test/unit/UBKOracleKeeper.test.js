@@ -35,76 +35,76 @@ describe("UBKOracleKeeper", function () {
             const [needed] = await keeper.checkUpkeep("0x"); // Must be true for a fresh keeper. 
 
             expect(await keeper.lastExecutionAttempt()).to.equal(0); // Init state.
-            expect(await keeper.interval()).to.equal(DAY / 2); // Init state.
+            expect(await keeper.regularInterval()).to.equal(DAY / 2); // Init state.
             expect(needed).to.equal(true); // Init state.
         });
     });
 
     describe("Admin", function () {
-        describe("setInterval()", function () {
+        describe("setRegularInterval()", function () {
             it("should allow owner to set valid interval and emit event", async () => {
                 const newInterval = DAY;
 
-                await expect(keeper.setInterval(newInterval))
-                    .to.emit(keeper, "KeeperIntervalUpdated");
+                await expect(keeper.setRegularInterval(newInterval))
+                    .to.emit(keeper, "KeeperRegularIntervalUpdated");
 
-                expect(await keeper.interval()).to.equal(newInterval);
+                expect(await keeper.regularInterval()).to.equal(newInterval);
             });
 
             it("should revert if non-owner tries to set interval", async () => {
                 await expect(
-                    keeper.connect(user).setInterval(DAY)
+                    keeper.connect(user).setRegularInterval(DAY)
                 ).to.be.revertedWithCustomError(keeper, "OwnableUnauthorizedAccount");
             });
 
             it("should revert if interval outside bounds", async () => {
-                await expect(keeper.setInterval(1))
+                await expect(keeper.setRegularInterval(1))
                     .to.be.revertedWithCustomError(keeper, "InvalidThreshold");
 
-                await expect(keeper.setInterval(DAY + 1))
+                await expect(keeper.setRegularInterval(DAY + 1))
                     .to.be.revertedWithCustomError(keeper, "InvalidThreshold");
             });
         });
 
-        describe("setRetryFactor()", function () {
+        describe("setRetryInterval()", function () {
             it("should allow owner to set valid retryFactor and emit event", async () => {
-                const newRetryFactor = DAY / 4; // must be < interval (default = DAY/2)
+                const newRetryInterval = DAY / 4; // must be < interval (default = DAY/2)
 
-                await expect(keeper.setRetryFactor(newRetryFactor))
-                    .to.emit(keeper, "KeeperRetryFactorUpdated");
+                await expect(keeper.setRetryInterval(newRetryInterval))
+                    .to.emit(keeper, "KeeperRetryIntervalUpdated");
 
-                expect(await keeper.retryFactor()).to.equal(newRetryFactor);
+                expect(await keeper.retryInterval()).to.equal(newRetryInterval);
             });
 
             it("should allow owner to set retryFactor equal to interval", async () => {
-                const interval = await keeper.interval();
+                const interval = await keeper.regularInterval();
 
-                await keeper.setRetryFactor(interval);
-                expect(await keeper.retryFactor()).to.equal(interval);
+                await keeper.setRetryInterval(interval);
+                expect(await keeper.retryInterval()).to.equal(interval);
             });
 
             it("should revert if non-owner tries to set retryFactor", async () => {
-                const newRetryFactor = DAY / 4;
+                const newRetryInterval = DAY / 4;
 
                 await expect(
-                    keeper.connect(user).setRetryFactor(newRetryFactor)
+                    keeper.connect(user).setRetryInterval(newRetryInterval)
                 ).to.be.revertedWithCustomError(keeper, "OwnableUnauthorizedAccount");
             });
 
             it("should revert if if retryFactor outside bounds", async () => {
                 // too small
-                await expect(keeper.setRetryFactor(1))
+                await expect(keeper.setRetryInterval(1))
                     .to.be.revertedWithCustomError(keeper, "InvalidThreshold");
 
                 // too large (beyond max interval)
-                await expect(keeper.setRetryFactor(DAY + 1))
+                await expect(keeper.setRetryInterval(DAY + 1))
                     .to.be.revertedWithCustomError(keeper, "InvalidThreshold");
             });
 
             it("should revert if if retryFactor > interval", async () => {
-                const interval = await keeper.interval(); // default = DAY / 2
+                const interval = await keeper.regularInterval(); // default = DAY / 2
 
-                await expect(keeper.setRetryFactor(interval + 1n))
+                await expect(keeper.setRetryInterval(interval + 1n))
                     .to.be.revertedWithCustomError(keeper, "InvalidThreshold");
             });
         });
@@ -145,7 +145,7 @@ describe("UBKOracleKeeper", function () {
     describe("External API", function () {
         describe("timeToUpkeep()", function () {
             it("returns lastExecutionAttempt + interval when last execution succeeded", async () => {
-                const interval = await keeper.interval();
+                const interval = await keeper.regularInterval();
 
                 // trigger a successful upkeep
                 await keeper.performUpkeep("0x");
@@ -163,7 +163,7 @@ describe("UBKOracleKeeper", function () {
                 await keeper.performUpkeep("0x");
 
                 const lastExecutionAttempt = await keeper.lastExecutionAttempt();
-                const retryFactor = await keeper.retryFactor();
+                const retryFactor = await keeper.retryInterval();
 
                 expect(await keeper.lastExecutionFailed()).to.equal(true);
 
@@ -178,7 +178,7 @@ describe("UBKOracleKeeper", function () {
                 await keeper.performUpkeep("0x");
 
                 let lastExecutionAttempt = await keeper.lastExecutionAttempt();
-                let retryFactor = await keeper.retryFactor();
+                let retryFactor = await keeper.retryInterval();
 
                 let next = await keeper.timeToUpkeep();
                 expect(next).to.equal(lastExecutionAttempt + retryFactor);
@@ -190,14 +190,14 @@ describe("UBKOracleKeeper", function () {
                 await keeper.performUpkeep("0x");
 
                 lastExecutionAttempt = await keeper.lastExecutionAttempt();
-                const interval = await keeper.interval();
+                const interval = await keeper.regularInterval();
 
                 next = await keeper.timeToUpkeep();
                 expect(next).to.equal(lastExecutionAttempt + interval);
             });
 
             it("returns interval-based timestamp for fresh state (no runs yet)", async () => {
-                const interval = await keeper.interval();
+                const interval = await keeper.regularInterval();
                 const lastExecutionAttempt = await keeper.lastExecutionAttempt(); // should be 0
 
                 const next = await keeper.timeToUpkeep();
@@ -228,7 +228,7 @@ describe("UBKOracleKeeper", function () {
             });
 
             it("returns true after interval passes", async () => {
-                const interval = await keeper.interval();
+                const interval = await keeper.regularInterval();
                 expect(interval).to.equal(DAY / 2); // Must be 12 hours for default setting.
 
                 await time.increase(DAY / 2 + 1); // Increase time to beyond 12 hours.
@@ -276,7 +276,7 @@ describe("UBKOracleKeeper", function () {
                 expect(await keeper.lastExecutionFailed()).to.equal(true); // Failure case confirmation.
 
                 // recover oracle
-                await time.increase(await keeper.retryFactor() + 1n);
+                await time.increase(await keeper.retryInterval() + 1n);
                 await oracle.setOracleMode(0); // Move oracle back to NORMAL mode
 
                 await expect(keeper.performUpkeep("0x"))
@@ -347,7 +347,7 @@ describe("UBKOracleKeeper", function () {
                 expect(await keeper.lastExecutionFailed()).to.equal(true); // Failure case confirmation.
 
                 // recover oracle
-                await time.increase(await keeper.retryFactor()); // 3 hours. Default backoff.
+                await time.increase(await keeper.retryInterval()); // 3 hours. Default backoff.
                 await oracle.setOracleMode(0); // Move oracle back to NORMAL mode
 
                 await expect(keeper.run())

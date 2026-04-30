@@ -30,25 +30,29 @@ contract UBKOracleKeeper is
     IUBKOracleKeeper,
     Ownable
 {
-    // KEEPER DATA PLANE
-    IUBKOracle public immutable oracle; // Oracle is immutable post construction.
+    // ************************ DATA PLANE  ************************ //
 
-    // KEEPER CONTROL PLANE - EXECUTIONS
-
-    /// @notice Flag tracking Keeper operational status. Initializes to NORMAL.
-    KeeperMode public mode = KeeperMode.NORMAL;
+    /// @notice Oracle is immutable post construction.
+    IUBKOracle public immutable oracle;
 
     /// @notice Timestamp of last attempted execution of upkeep logic. Initalizes to 0.
     uint256 public lastExecutionAttempt;
 
-    /// @notice Current keeper execution interval when last execution attempt did not fail. Initializes to 12 hours.
-    uint256 public interval = UBKOracleConstants.ORACLE_DEFAULT_KEEPER_INTERVAL;
-
     /// @notice Flag tracking failure status of last upkeep attempt. Initializes to false
     bool public lastExecutionFailed;
 
-    // KEEPER CONTROL PLANE - RETRIES
-    uint256 public retryFactor = UBKOracleConstants.ORACLE_MIN_KEEPER_INTERVAL; // Initializes retry factor to lower bound of keeper interval.
+    // ************************ CONTROL PLANE  ************************ //
+
+    /// @notice Flag tracking Keeper operational status. Initializes to NORMAL.
+    KeeperMode public mode = KeeperMode.NORMAL;
+
+    /// @notice Regular keeper execution interval. Initializes to 12 hours.
+    uint256 public regularInterval =
+        UBKOracleConstants.ORACLE_DEFAULT_KEEPER_INTERVAL;
+
+    /// @notice Keeper interval to use when previous execution attempt fails. Initializes to lower bound of keeper interval.
+    uint256 public retryInterval =
+        UBKOracleConstants.ORACLE_MIN_KEEPER_INTERVAL;
 
     /**
      * @notice Initializes the keeper with an owner and oracle contract.
@@ -79,27 +83,27 @@ contract UBKOracleKeeper is
      * @dev Restricted to the contract owner. Reverts if `_interval` is outside the
      *      protocol-defined minimum and maximum bounds.
      *
-     * @param _interval New keeper execution interval, in seconds.
+     * @param _regularInterval New keeper execution interval, in seconds.
      */
-    function setInterval(uint256 _interval) external onlyOwner {
+    function setRegularInterval(uint256 _regularInterval) external onlyOwner {
         // Validate _interval first.
         if (
-            _interval > UBKOracleConstants.ORACLE_MAX_KEEPER_INTERVAL ||
-            _interval < UBKOracleConstants.ORACLE_MIN_KEEPER_INTERVAL
+            _regularInterval > UBKOracleConstants.ORACLE_MAX_KEEPER_INTERVAL ||
+            _regularInterval < UBKOracleConstants.ORACLE_MIN_KEEPER_INTERVAL
         ) {
             revert InvalidThreshold(
-                "UBKOracleKeeper::setInterval",
+                "UBKOracleKeeper::setRegularInterval",
                 msg.sender,
-                _interval
+                _regularInterval
             );
         }
 
         // Update state.
-        uint256 oldInterval = interval;
-        interval = _interval;
+        uint256 oldRegularInterval = regularInterval;
+        regularInterval = _regularInterval;
 
         // Emit event for observability.
-        emit KeeperIntervalUpdated(oldInterval, interval);
+        emit KeeperRegularIntervalUpdated(oldRegularInterval, regularInterval);
     }
 
     /**
@@ -108,28 +112,28 @@ contract UBKOracleKeeper is
      * @dev Restricted to the contract owner. Reverts if `_retryFactor` is outside the
      *      protocol-defined minimum and maximum bounds for keeper intervals, as well as if the retryFactor is larger than the regular interval.
      *
-     * @param _retryFactor New keeper retry factor, in seconds.
+     * @param _retryInterval New keeper retry interval, in seconds.
      */
-    function setRetryFactor(uint256 _retryFactor) external onlyOwner {
+    function setRetryInterval(uint256 _retryInterval) external onlyOwner {
         // Validate _interval first.
         if (
-            _retryFactor > UBKOracleConstants.ORACLE_MAX_KEEPER_INTERVAL ||
-            _retryFactor < UBKOracleConstants.ORACLE_MIN_KEEPER_INTERVAL ||
-            _retryFactor > interval // Retry factor MUST be lesser than interval.
+            _retryInterval > UBKOracleConstants.ORACLE_MAX_KEEPER_INTERVAL ||
+            _retryInterval < UBKOracleConstants.ORACLE_MIN_KEEPER_INTERVAL ||
+            _retryInterval > regularInterval // Retry factor MUST be lesser than interval.
         ) {
             revert InvalidThreshold(
-                "UBKOracleKeeper::setRetryFactor",
+                "UBKOracleKeeper::setRetryInterval",
                 msg.sender,
-                _retryFactor
+                _retryInterval
             );
         }
 
         // Update state.
-        uint256 oldRetryFactor = retryFactor;
-        retryFactor = _retryFactor;
+        uint256 oldRetryInterval = retryInterval;
+        retryInterval = _retryInterval;
 
         // Emit event for observability.
-        emit KeeperRetryFactorUpdated(oldRetryFactor, retryFactor);
+        emit KeeperRetryIntervalUpdated(oldRetryInterval, retryInterval);
     }
 
     /**
@@ -242,9 +246,9 @@ contract UBKOracleKeeper is
      * - Does not perform any state changes.
      */
     function _timeToUpkeep() internal view returns (uint256 timestamp) {
-        timestamp = lastExecutionAttempt + interval; // Default case. Last execution succeeded.
+        timestamp = lastExecutionAttempt + regularInterval; // Default case. Last execution succeeded.
         if (lastExecutionFailed) {
-            timestamp = lastExecutionAttempt + retryFactor; // Failure case. Last execution failed. Try again while avoiding retry storms.
+            timestamp = lastExecutionAttempt + retryInterval; // Failure case. Last execution failed. Try again while avoiding retry storms.
         }
     }
 
@@ -276,11 +280,15 @@ contract UBKOracleKeeper is
             emit KeeperTaskCompleted(
                 msg.sender,
                 lastExecutionAttempt,
-                interval
+                regularInterval
             );
         } catch {
             lastExecutionFailed = true; // Mark failure. Allow for retryFactor buffering.
-            emit KeeperTaskFailed(msg.sender, block.timestamp, interval);
+            emit KeeperTaskFailed(
+                msg.sender,
+                lastExecutionAttempt,
+                regularInterval
+            );
         }
     }
 }
