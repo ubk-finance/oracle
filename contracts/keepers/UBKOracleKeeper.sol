@@ -138,7 +138,10 @@ contract UBKOracleKeeper is
      * @param _mode New keeper mode.
      */
     function setKeeperMode(KeeperMode _mode) external onlyOwner {
+        // Update state.
         mode = _mode;
+
+        // Emit event for observability.
         emit KeeperModeUpdated(uint40(mode), block.timestamp);
     }
 
