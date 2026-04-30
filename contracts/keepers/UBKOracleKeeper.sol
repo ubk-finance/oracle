@@ -30,15 +30,25 @@ contract UBKOracleKeeper is
     IUBKOracleKeeper,
     Ownable
 {
+    // KEEPER DATA PLANE
     IUBKOracle public immutable oracle; // Oracle is immutable post construction.
 
-    KeeperMode public mode = KeeperMode.NORMAL; // Initializes keeper mode to NORMAL.
+    // KEEPER CONTROL PLANE - EXECUTIONS
 
-    uint256 public lastRun; // Initializes to 0.
-    uint256 public interval = UBKOracleConstants.ORACLE_DEFAULT_KEEPER_INTERVAL; // Initializes to 12 hours.
+    /// @notice Flag tracking Keeper operational status. Initializes to NORMAL.
+    KeeperMode public mode = KeeperMode.NORMAL;
 
+    /// @notice Timestamp of last attempted execution of upkeep logic. Initalizes to 0.
+    uint256 public lastExecutionAttempt;
+
+    /// @notice Current keeper execution interval when last execution attempt did not fail. Initializes to 12 hours.
+    uint256 public interval = UBKOracleConstants.ORACLE_DEFAULT_KEEPER_INTERVAL;
+
+    /// @notice Flag tracking failure status of last upkeep attempt. Initializes to false
+    bool public lastExecutionFailed;
+
+    // KEEPER CONTROL PLANE - RETRIES
     uint256 public retryFactor = UBKOracleConstants.ORACLE_MIN_KEEPER_INTERVAL; // Initializes retry factor to lower bound of keeper interval.
-    bool public lastExecutionFailed; // Initializes to false
 
     /**
      * @notice Initializes the keeper with an owner and oracle contract.
@@ -184,7 +194,7 @@ contract UBKOracleKeeper is
      *      Automation, though any address may call it. If the configured interval
      *      has not elapsed, the function exits without reverting.
      *
-     * Updates `lastRun` before calling the oracle, then fetches the currently
+     * Updates `lastExecutionAttempt` before calling the oracle, then fetches the currently
      * supported tokens from the oracle and triggers a price update for them.
      *
      */
@@ -199,7 +209,7 @@ contract UBKOracleKeeper is
      *      though any address may call it. If the configured interval has not
      *      elapsed, the function exits without reverting.
      *
-     * Updates `lastRun` before calling the oracle, then fetches the currently
+     * Updates `lastExecutionAttempt` before calling the oracle, then fetches the currently
      * supported tokens from the oracle and triggers a price update for them.
      */
     function run() external {
@@ -232,9 +242,9 @@ contract UBKOracleKeeper is
      * - Does not perform any state changes.
      */
     function _timeToUpkeep() internal view returns (uint256 timestamp) {
-        timestamp = lastRun + interval; // Default case. Last execution succeeded.
+        timestamp = lastExecutionAttempt + interval; // Default case. Last execution succeeded.
         if (lastExecutionFailed) {
-            timestamp = lastRun + retryFactor; // Failure case. Last execution failed. Try again while avoiding retry storms.
+            timestamp = lastExecutionAttempt + retryFactor; // Failure case. Last execution failed. Try again while avoiding retry storms.
         }
     }
 
@@ -250,8 +260,8 @@ contract UBKOracleKeeper is
      *      without reverting.
      *
      * Attempts to fetch and update prices for all supported tokens via the oracle:
-     * - On success: updates `lastRun` and emits `KeeperTaskCompleted`.
-     * - On failure: does not update `lastRun` and emits `KeeperTaskFailed`.
+     * - On success: updates `lastExecutionAttempt` and emits `KeeperTaskCompleted`.
+     * - On failure: does not update `lastExecutionAttempt` and emits `KeeperTaskFailed`.
      *
      * This design allows the keeper to retry execution on subsequent calls if the
      * oracle update fails, improving resilience to transient errors.
@@ -259,11 +269,15 @@ contract UBKOracleKeeper is
     function _executeUpkeep() internal whenNotPaused {
         if (!_checkUpkeep()) return;
 
-        lastRun = block.timestamp; // Update the lastRun timestamp regardless of execution success or failure.
+        lastExecutionAttempt = block.timestamp; // Update the lastExecutionAttempt timestamp regardless of execution success or failure.
 
         try oracle.fetchAndUpdatePrice(oracle.getSupportedTokens()) {
             lastExecutionFailed = false; // Mark success
-            emit KeeperTaskCompleted(msg.sender, lastRun, interval);
+            emit KeeperTaskCompleted(
+                msg.sender,
+                lastExecutionAttempt,
+                interval
+            );
         } catch {
             lastExecutionFailed = true; // Mark failure. Allow for retryFactor buffering.
             emit KeeperTaskFailed(msg.sender, block.timestamp, interval);
