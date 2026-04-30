@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@ubk-labs/ubk-commons/contracts/errors/UBKErrors.sol";
 
-// ───────────── Errors ─────────────
+// ───────────── Oracle Errors ─────────────
 error ERC4626DecimalsMismatch(
     string functionName,
     address vault,
@@ -25,3 +25,7 @@ error StaleFallback(address token);
 error StalePrice(address token, uint256 updatedAt, uint256 currentTime);
 error SuspiciousVaultRate(address vault, uint256 rate);
 error TokenNotSupported(address token);
+
+// ───────────── Keeper Errors ─────────────
+error KeeperPaused(uint256 timestamp);
+

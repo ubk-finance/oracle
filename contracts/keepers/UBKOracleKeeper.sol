@@ -32,6 +32,8 @@ contract UBKOracleKeeper is
 {
     IUBKOracle public immutable oracle; // Oracle is immutable post construction.
 
+    KeeperMode mode = KeeperMode.NORMAL; // Initializes keeper mode to NORMAL.
+
     uint256 public lastRun; // Initializes to 0.
     uint256 public interval = UBKOracleConstants.ORACLE_DEFAULT_KEEPER_INTERVAL; // Initializes to 12 hours.
 
@@ -49,6 +51,12 @@ contract UBKOracleKeeper is
      */
     constructor(address _owner, address _oracle) Ownable(_owner) {
         oracle = IUBKOracle(_oracle);
+    }
+
+    /// @notice Used to control _run() execution by owner. Reverts the decorated function when keeper is paused.
+    modifier whenNotPaused() {
+        if (mode == KeeperMode.PAUSED) revert KeeperPaused(block.timestamp);
+        _;
     }
 
     // -----------------------------------------------------------------------
@@ -112,6 +120,26 @@ contract UBKOracleKeeper is
 
         // Emit event for observability.
         emit KeeperRetryFactorUpdated(oldRetryFactor, retryFactor);
+    }
+
+    /**
+     * @notice Updates the keeper operating mode.
+     *
+     * @dev Restricted to the contract owner.
+     *      The keeper mode acts as a circuit breaker for oracle update execution:
+     *      - In NORMAL mode, keeper executions proceed as usual.
+     *      - In PAUSED mode, executions are blocked via `whenNotPaused`, preventing
+     *        further oracle update attempts.
+     *
+     *      This mechanism is intended to mitigate unnecessary fund expenditure in
+     *      scenarios where downstream oracle updates repeatedly fail beyond an
+     *      acceptable threshold.
+     *
+     * @param _mode New keeper mode.
+     */
+    function setKeeperMode(KeeperMode _mode) external onlyOwner {
+        mode = _mode;
+        emit KeeperModeUpdated(uint40(mode), block.timestamp);
     }
 
     // -----------------------------------------------------------------------
@@ -225,7 +253,7 @@ contract UBKOracleKeeper is
      * This design allows the keeper to retry execution on subsequent calls if the
      * oracle update fails, improving resilience to transient errors.
      */
-    function _run() internal {
+    function _run() internal whenNotPaused {
         if (!_checkUpkeep()) return;
 
         lastRun = block.timestamp; // Update the lastRun timestamp regardless of execution success or failure.
