@@ -109,34 +109,34 @@ describe("UBKOracleKeeper", function () {
             });
         });
 
-        describe("setKeeperMode()", function () {
+        describe("setMode()", function () {
             it("should allow owner to update keeper mode and emit event", async () => {
                 // Assuming enum: NORMAL = 0, PAUSED = 1
                 const PAUSED = 1;
-        
-                await expect(keeper.setKeeperMode(PAUSED))
+
+                await expect(keeper.setMode(PAUSED))
                     .to.emit(keeper, "KeeperModeUpdated")
                     .withArgs(PAUSED, anyValue);
-        
+
                 expect(await keeper.mode()).to.equal(PAUSED);
             });
-        
+
             it("should revert if non-owner tries to set keeper mode", async () => {
                 const PAUSED = 1;
-        
+
                 await expect(
-                    keeper.connect(user).setKeeperMode(PAUSED)
+                    keeper.connect(user).setMode(PAUSED)
                 ).to.be.revertedWithCustomError(keeper, "OwnableUnauthorizedAccount");
             });
-        
+
             it("should allow switching back to NORMAL mode", async () => {
                 const NORMAL = 0;
                 const PAUSED = 1;
-        
-                await keeper.setKeeperMode(PAUSED);
+
+                await keeper.setMode(PAUSED);
                 expect(await keeper.mode()).to.equal(PAUSED);
-        
-                await keeper.setKeeperMode(NORMAL);
+
+                await keeper.setMode(NORMAL);
                 expect(await keeper.mode()).to.equal(NORMAL);
             });
         });
@@ -146,62 +146,62 @@ describe("UBKOracleKeeper", function () {
         describe("timeToUpkeep()", function () {
             it("returns lastRun + interval when last execution succeeded", async () => {
                 const interval = await keeper.interval();
-        
+
                 // trigger a successful upkeep
                 await keeper.performUpkeep("0x");
                 const lastRun = await keeper.lastRun();
-        
+
                 const next = await keeper.timeToUpkeep();
-        
+
                 expect(next).to.equal(lastRun + interval);
             });
-        
+
             it("returns lastRun + retryFactor when last execution failed", async () => {
                 // force oracle failure
                 await oracle.setOracleMode(1); // PAUSED -> will revert
-        
+
                 await keeper.performUpkeep("0x");
-        
+
                 const lastRun = await keeper.lastRun();
                 const retryFactor = await keeper.retryFactor();
-        
+
                 expect(await keeper.lastExecutionFailed()).to.equal(true);
-        
+
                 const next = await keeper.timeToUpkeep();
-        
+
                 expect(next).to.equal(lastRun + retryFactor);
             });
-        
+
             it("updates correctly after failure then success", async () => {
                 // Step 1: cause failure
                 await oracle.setOracleMode(1);
                 await keeper.performUpkeep("0x");
-        
+
                 let lastRun = await keeper.lastRun();
                 let retryFactor = await keeper.retryFactor();
-        
+
                 let next = await keeper.timeToUpkeep();
                 expect(next).to.equal(lastRun + retryFactor);
-        
+
                 // Step 2: recover oracle and succeed
                 await time.increase(retryFactor + 1n);
                 await oracle.setOracleMode(0);
-        
+
                 await keeper.performUpkeep("0x");
-        
+
                 lastRun = await keeper.lastRun();
                 const interval = await keeper.interval();
-        
+
                 next = await keeper.timeToUpkeep();
                 expect(next).to.equal(lastRun + interval);
             });
-        
+
             it("returns interval-based timestamp for fresh state (no runs yet)", async () => {
                 const interval = await keeper.interval();
                 const lastRun = await keeper.lastRun(); // should be 0
-        
+
                 const next = await keeper.timeToUpkeep();
-        
+
                 expect(lastRun).to.equal(0);
                 expect(next).to.equal(interval);
             });
@@ -292,14 +292,21 @@ describe("UBKOracleKeeper", function () {
                 const lastRunBefore = await keeper.lastRun(); // lastRun post successful execution of run().
 
                 const [neededAfter] = await keeper.checkUpkeep("0x"); // Will be false for fresh keeper.
-                expect (neededAfter).to.equal(false); // neededAfter must return false, since interval has not passed.
+                expect(neededAfter).to.equal(false); // neededAfter must return false, since interval has not passed.
                 await expect(keeper.performUpkeep("0x"))
-                .to.not.emit(keeper, "KeeperTaskCompleted"); // Should NOT emit event after performing upkeep duties.
+                    .to.not.emit(keeper, "KeeperTaskCompleted"); // Should NOT emit event after performing upkeep duties.
                 const lastRunAfter = await keeper.lastRun(); // lastRun post no-op execution of run().
 
                 expect(lastRunAfter).to.equal(lastRunBefore); // lastRunBefore MUST equal lastRunAfter in case of no-op.
             });
 
+            it("reverts when keeper mode is PAUSED", async () => {
+                const [needed] = await keeper.checkUpkeep("0x"); // Will be true for fresh keeper.
+                expect(needed).to.equal(true); // Sanity check
+                await keeper.setMode(1); // set keeper mode to PAUSED
+                await expect(keeper.performUpkeep("0x"))
+                    .to.be.revertedWithCustomError(keeper, "KeeperPaused");
+            });
         });
 
         describe("run()", function () {
@@ -356,13 +363,22 @@ describe("UBKOracleKeeper", function () {
                 const lastRunBefore = await keeper.lastRun(); // lastRun post successful execution of run().
 
                 const [neededAfter] = await keeper.checkUpkeep("0x"); // Will be false for fresh keeper.
-                expect (neededAfter).to.equal(false); // neededAfter must return false, since interval has not passed.
+                expect(neededAfter).to.equal(false); // neededAfter must return false, since interval has not passed.
                 await expect(keeper.run())
-                .to.not.emit(keeper, "KeeperTaskCompleted"); // Should NOT emit event after performing upkeep duties.
+                    .to.not.emit(keeper, "KeeperTaskCompleted"); // Should NOT emit event after performing upkeep duties.
                 const lastRunAfter = await keeper.lastRun(); // lastRun post no-op execution of run().
 
                 expect(lastRunAfter).to.equal(lastRunBefore); // lastRunBefore MUST equal lastRunAfter in case of no-op.
             });
+
+            it("reverts when keeper mode is PAUSED", async () => {
+                const [needed] = await keeper.checkUpkeep("0x"); // Will be true for fresh keeper.
+                expect(needed).to.equal(true); // Sanity check
+                await keeper.setMode(1); // set keeper mode to PAUSED
+                await expect(keeper.run())
+                    .to.be.revertedWithCustomError(keeper, "KeeperPaused");
+            });
+
         });
     });
 });

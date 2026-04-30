@@ -53,7 +53,7 @@ contract UBKOracleKeeper is
         oracle = IUBKOracle(_oracle);
     }
 
-    /// @notice Used to control _run() execution by owner. Reverts the decorated function when keeper is paused.
+    /// @notice Used to control _executeUpkeep() execution by owner. Reverts the decorated function when keeper is paused.
     modifier whenNotPaused() {
         if (mode == KeeperMode.PAUSED) revert KeeperPaused(block.timestamp);
         _;
@@ -137,7 +137,7 @@ contract UBKOracleKeeper is
      *
      * @param _mode New keeper mode.
      */
-    function setKeeperMode(KeeperMode _mode) external onlyOwner {
+    function setMode(KeeperMode _mode) external onlyOwner {
         // Update state.
         mode = _mode;
 
@@ -189,7 +189,7 @@ contract UBKOracleKeeper is
      *
      */
     function performUpkeep(bytes calldata) external override {
-        _run();
+        _executeUpkeep();
     }
 
     /**
@@ -203,7 +203,7 @@ contract UBKOracleKeeper is
      * supported tokens from the oracle and triggers a price update for them.
      */
     function run() external {
-        _run();
+        _executeUpkeep();
     }
 
     // -----------------------------------------------------------------------
@@ -215,7 +215,7 @@ contract UBKOracleKeeper is
      * @return upkeepNeeded True if the configured interval has elapsed since the last run.
      *
      * @dev
-     * - Called by _run(), which in turn is called by both run() and performUpkeep().
+     * - Called by _executeUpkeep(), which in turn is called by both run() and performUpkeep().
      * - Uses `block.timestamp` to determine eligibility.
      * - Does not perform any state changes.
      */
@@ -256,7 +256,7 @@ contract UBKOracleKeeper is
      * This design allows the keeper to retry execution on subsequent calls if the
      * oracle update fails, improving resilience to transient errors.
      */
-    function _run() internal whenNotPaused {
+    function _executeUpkeep() internal whenNotPaused {
         if (!_checkUpkeep()) return;
 
         lastRun = block.timestamp; // Update the lastRun timestamp regardless of execution success or failure.
