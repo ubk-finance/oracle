@@ -265,7 +265,7 @@ contract UBKOracleKeeper is
      *
      * Attempts to fetch and update prices for all supported tokens via the oracle:
      * - On success: updates `lastExecutionAttempt` and emits `KeeperTaskCompleted`.
-     * - On failure: does not update `lastExecutionAttempt` and emits `KeeperTaskFailed`.
+     * - On failure: updates `lastExecutionAttempt` and emits `KeeperTaskFailed`.
      *
      * This design allows the keeper to retry execution on subsequent calls if the
      * oracle update fails, improving resilience to transient errors.
