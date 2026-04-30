@@ -222,13 +222,16 @@ describe("UBKOracleKeeper", function () {
                 expect(await keeper.lastRun()).to.be.gt(0);
             });
 
-            it("does not update lastRun if oracle fails", async () => {
+            it("updates lastRun even if oracle fails", async () => {
                 await oracle.setOracleMode(1); // Set Oracle to PAUSED so that it reverts keeper.
                 const [needed] = await keeper.checkUpkeep("0x"); // Must return true.
+                const lastRunBefore = await keeper.lastRun(); // lastRun before running the failed call to run()
                 expect(needed).to.equal(true); // Sanity check
                 await expect(keeper.performUpkeep("0x"))
-                    .to.emit(keeper, "KeeperTaskFailed");
+                    .to.emit(keeper, "KeeperTaskFailed"); // Confirm failure.
                 expect(await keeper.lastExecutionFailed()).to.equal(true); // Failure case confirmation.
+                const lastRunAfter = await keeper.lastRun(); // lastRun after the failed call to run()
+                expect(lastRunAfter).to.be.gt(lastRunBefore); // Confirm that lastRun was still modified.
             });
 
             it("allows for successful retries post oracle recovery", async () => {
@@ -248,6 +251,23 @@ describe("UBKOracleKeeper", function () {
                     .to.emit(keeper, "KeeperTaskCompleted"); // Success case.
                 expect(await keeper.lastRun()).to.be.gt(0); // Success case confirmation.
             });
+
+            it("performs a graceful no-op when checkUpkeep() returns false", async () => {
+                const [needed] = await keeper.checkUpkeep("0x"); // Will be true for fresh keeper.
+                expect(needed).to.equal(true); // Sanity check
+                await expect(keeper.performUpkeep("0x"))
+                    .to.emit(keeper, "KeeperTaskCompleted"); // Should emit event after performing upkeep duties.
+                const lastRunBefore = await keeper.lastRun(); // lastRun post successful execution of run().
+
+                const [neededAfter] = await keeper.checkUpkeep("0x"); // Will be false for fresh keeper.
+                expect (neededAfter).to.equal(false); // neededAfter must return false, since interval has not passed.
+                await expect(keeper.performUpkeep("0x"))
+                .to.not.emit(keeper, "KeeperTaskCompleted"); // Should NOT emit event after performing upkeep duties.
+                const lastRunAfter = await keeper.lastRun(); // lastRun post no-op execution of run().
+
+                expect(lastRunAfter).to.equal(lastRunBefore); // lastRunBefore MUST equal lastRunAfter in case of no-op.
+            });
+
         });
 
         describe("run()", function () {
@@ -266,13 +286,16 @@ describe("UBKOracleKeeper", function () {
                 expect(await keeper.lastRun()).to.be.gt(0);
             });
 
-            it("does not update lastRun if oracle fails", async () => {
+            it("updates lastRun even if oracle fails", async () => {
                 await oracle.setOracleMode(1); // Set Oracle to PAUSED so that it reverts keeper.
                 const [needed] = await keeper.checkUpkeep("0x"); // Must return true.
+                const lastRunBefore = await keeper.lastRun(); // lastRun before running the failed call to run()
                 expect(needed).to.equal(true); // Sanity check
                 await expect(keeper.run())
-                    .to.emit(keeper, "KeeperTaskFailed");
+                    .to.emit(keeper, "KeeperTaskFailed"); // Confirm failure.
                 expect(await keeper.lastExecutionFailed()).to.equal(true); // Failure case confirmation.
+                const lastRunAfter = await keeper.lastRun(); // lastRun after the failed call to run()
+                expect(lastRunAfter).to.be.gt(lastRunBefore); // Confirm that lastRun was still modified.
             });
 
             it("allows for successful retries post oracle recovery", async () => {
@@ -291,6 +314,22 @@ describe("UBKOracleKeeper", function () {
                 await expect(keeper.run())
                     .to.emit(keeper, "KeeperTaskCompleted"); // Success case.
                 expect(await keeper.lastRun()).to.be.gt(0); // Success case confirmation.
+            });
+
+            it("performs a graceful no-op when checkUpkeep() returns false", async () => {
+                const [needed] = await keeper.checkUpkeep("0x"); // Will be true for fresh keeper.
+                expect(needed).to.equal(true); // Sanity check
+                await expect(keeper.run())
+                    .to.emit(keeper, "KeeperTaskCompleted"); // Should emit event after performing upkeep duties.
+                const lastRunBefore = await keeper.lastRun(); // lastRun post successful execution of run().
+
+                const [neededAfter] = await keeper.checkUpkeep("0x"); // Will be false for fresh keeper.
+                expect (neededAfter).to.equal(false); // neededAfter must return false, since interval has not passed.
+                await expect(keeper.run())
+                .to.not.emit(keeper, "KeeperTaskCompleted"); // Should NOT emit event after performing upkeep duties.
+                const lastRunAfter = await keeper.lastRun(); // lastRun post no-op execution of run().
+
+                expect(lastRunAfter).to.equal(lastRunBefore); // lastRunBefore MUST equal lastRunAfter in case of no-op.
             });
         });
     });
