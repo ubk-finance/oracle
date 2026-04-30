@@ -111,6 +111,70 @@ describe("UBKOracleKeeper", function () {
     });
 
     describe("External API", function () {
+        describe("timeToUpkeep()", function () {
+            it("returns lastRun + interval when last execution succeeded", async () => {
+                const interval = await keeper.interval();
+        
+                // trigger a successful upkeep
+                await keeper.performUpkeep("0x");
+                const lastRun = await keeper.lastRun();
+        
+                const next = await keeper.timeToUpkeep();
+        
+                expect(next).to.equal(lastRun + interval);
+            });
+        
+            it("returns lastRun + retryFactor when last execution failed", async () => {
+                // force oracle failure
+                await oracle.setOracleMode(1); // PAUSED -> will revert
+        
+                await keeper.performUpkeep("0x");
+        
+                const lastRun = await keeper.lastRun();
+                const retryFactor = await keeper.retryFactor();
+        
+                expect(await keeper.lastExecutionFailed()).to.equal(true);
+        
+                const next = await keeper.timeToUpkeep();
+        
+                expect(next).to.equal(lastRun + retryFactor);
+            });
+        
+            it("updates correctly after failure then success", async () => {
+                // Step 1: cause failure
+                await oracle.setOracleMode(1);
+                await keeper.performUpkeep("0x");
+        
+                let lastRun = await keeper.lastRun();
+                let retryFactor = await keeper.retryFactor();
+        
+                let next = await keeper.timeToUpkeep();
+                expect(next).to.equal(lastRun + retryFactor);
+        
+                // Step 2: recover oracle and succeed
+                await time.increase(retryFactor + 1n);
+                await oracle.setOracleMode(0);
+        
+                await keeper.performUpkeep("0x");
+        
+                lastRun = await keeper.lastRun();
+                const interval = await keeper.interval();
+        
+                next = await keeper.timeToUpkeep();
+                expect(next).to.equal(lastRun + interval);
+            });
+        
+            it("returns interval-based timestamp for fresh state (no runs yet)", async () => {
+                const interval = await keeper.interval();
+                const lastRun = await keeper.lastRun(); // should be 0
+        
+                const next = await keeper.timeToUpkeep();
+        
+                expect(lastRun).to.equal(0);
+                expect(next).to.equal(interval);
+            });
+        });
+
         describe("checkUpkeep()", function () {
             it("returns true if no previous update", async () => {
                 const [needed] = await keeper.checkUpkeep("0x");
