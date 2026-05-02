@@ -63,8 +63,8 @@ contract UBKOracleKeeper is
      * - `_oracle` is assumed to be a valid IUBKOracle implementation.
      * - Ownership is set via OpenZeppelin Ownable.
      */
-    constructor(address _owner, address _oracle) Ownable(_owner) {
-        oracle = IUBKOracle(_oracle);
+    constructor(address _owner, IUBKOracle _oracle) Ownable(_owner) {
+        oracle = _oracle;
     }
 
     /// @notice Used to control _executeUpkeep() execution by owner. Reverts the decorated function when keeper is paused.
