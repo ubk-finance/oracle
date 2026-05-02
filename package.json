@@ -29,7 +29,6 @@
   "devDependencies": {
     "@graphprotocol/hardhat-graph": "^0.1.0-alpha.2",
     "@nomicfoundation/hardhat-toolbox": "^3.0.0",
-    "@nomicfoundation/hardhat-verify": "^2.1.3",
     "@openzeppelin/contracts": "^5.0.1",
     "dotenv": "^16.1.4",
     "ethers": "^6.7.0",
